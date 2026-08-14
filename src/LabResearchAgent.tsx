@@ -1,23 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Beaker, Search, FileSpreadsheet, BarChart2, PenTool, CheckCircle, 
-  RefreshCcw, Loader2, ArrowRight, Download, Clipboard, AlertCircle, PlayCircle,
-  Trash2, FolderOpen, Plus, X
+  Loader2, ArrowRight, Download, AlertCircle, PlayCircle,
+  Trash2, FolderOpen, Plus, X, Moon, Sun, Activity, BookOpen, FileText, Database, Microscope
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
-
-// Custom Design Tokens
-const C = {
-  paper: '#FAF9F4',
-  paperAlt: '#F1EEE3',
-  ink: '#1C2320',
-  inkSoft: '#5B6360',
-  teal: '#12615C',
-  tealDark: '#0B4844',
-  rust: '#A8562C',
-  rustPale: '#F3E4D8',
-  line: '#DDD8C8'
-};
+import { motion, AnimatePresence } from 'motion/react';
 
 // API Helper
 async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean } = {}) {
@@ -31,7 +19,7 @@ async function callGemini(prompt: string, opts: { system?: string, webSearch?: b
   return data.text;
 }
 
-// Stats Math Helpers (Pure JS)
+// Stats Math Helpers
 const parseCSV = (csv: string) => {
   const lines = csv.trim().split('\n');
   if (lines.length < 2) return { headers: [], rows: [] };
@@ -163,40 +151,41 @@ const mockStorage = {
 // Micro-components
 const MarkdownLite = ({ content }: { content: string }) => {
   const parsed = content
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-[var(--text-primary)]">$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/```(.*?)```/gs, '<pre class="p-3 rounded my-3 text-sm font-mono overflow-x-auto" style="background-color: ' + C.paperAlt + '"><code>$1</code></pre>')
+    .replace(/```(.*?)```/gs, '<pre class="p-4 rounded-xl my-4 text-sm font-mono overflow-x-auto bg-[var(--bg-paper-hover)] border border-[var(--border-color)] text-[var(--text-primary)]"><code>$1</code></pre>')
     .replace(/\n\n/g, '<br/><br/>')
-    .replace(/^- (.*)$/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>)/s, '<ul class="list-disc pl-5 my-2">$1</ul>')
-    .replace(/### (.*)/g, '<h4 class="text-md font-bold mt-4 mb-2" style="color: ' + C.ink + '">$1</h4>')
-    .replace(/## (.*)/g, '<h3 class="text-lg font-bold mt-5 mb-2 border-b pb-1" style="color: ' + C.ink + '; border-color: ' + C.line + '">$1</h3>');
+    .replace(/^- (.*)$/gm, '<li class="ml-4">$1</li>')
+    .replace(/(<li class="ml-4">.*<\/li>)/s, '<ul class="list-disc pl-5 my-4 space-y-2 text-[var(--text-secondary)]">$1</ul>')
+    .replace(/### (.*)/g, '<h4 class="text-md font-bold mt-6 mb-3 text-[var(--text-primary)] font-serif">$1</h4>')
+    .replace(/## (.*)/g, '<h3 class="text-xl font-bold mt-8 mb-4 border-b pb-2 border-[var(--border-color)] text-[var(--text-primary)] font-serif">$1</h3>');
 
-  return <div dangerouslySetInnerHTML={{ __html: parsed }} className="text-sm leading-relaxed" style={{ color: C.inkSoft }} />;
+  return <div dangerouslySetInnerHTML={{ __html: parsed }} className="text-[15px] leading-relaxed text-[var(--text-secondary)]" />;
 };
 
-const SectionCard = ({ children, title, subtitle }: { children: React.ReactNode, title?: string, subtitle?: string }) => (
-  <div className="bg-white p-6 rounded-xl border shadow-sm mb-6 transition-all" style={{ borderColor: C.line }}>
+const SectionCard = ({ children, title, subtitle, className="" }: { children: React.ReactNode, title?: string, subtitle?: string, className?: string }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={`bg-[var(--bg-paper)] p-6 md:p-8 rounded-2xl border border-[var(--border-color)] shadow-sm mb-6 ${className}`}
+  >
     {(title || subtitle) && (
-      <div className="mb-5 pb-4 border-b" style={{ borderColor: C.line }}>
-        {subtitle && <span className="text-[10px] uppercase font-black block tracking-widest mb-1" style={{ color: C.rust }}>{subtitle}</span>}
-        {title && <h3 className="text-lg font-bold" style={{ color: C.ink }}>{title}</h3>}
+      <div className="mb-6 pb-4 border-b border-[var(--border-color)]">
+        {subtitle && <span className="text-[10px] uppercase font-black block tracking-widest mb-2 text-[var(--accent-primary)]">{subtitle}</span>}
+        {title && <h3 className="text-xl font-bold font-serif text-[var(--text-primary)]">{title}</h3>}
       </div>
     )}
     {children}
-  </div>
-);
-
-const Eyebrow = ({ children }: { children: React.ReactNode }) => (
-  <span className="text-[10px] uppercase font-black mb-1 block tracking-widest" style={{ color: C.rust }}>{children}</span>
+  </motion.div>
 );
 
 const PrimaryButton = ({ children, onClick, disabled, loading, icon: Icon, className="" }: any) => (
   <button 
     onClick={onClick} 
     disabled={disabled || loading}
-    className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 hover:opacity-90 ${className}`}
-    style={{ backgroundColor: C.teal, color: '#fff', opacity: (disabled || loading) ? 0.6 : 1 }}
+    className={`px-6 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 
+      bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary-hover)]
+      disabled:opacity-50 disabled:cursor-not-allowed shadow-sm ${className}`}
   >
     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (Icon && <Icon className="w-4 h-4" />)}
     {children}
@@ -207,8 +196,9 @@ const SecondaryButton = ({ children, onClick, disabled, loading, icon: Icon, cla
   <button 
     onClick={onClick} 
     disabled={disabled || loading}
-    className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest border transition-colors flex items-center justify-center gap-2 hover:bg-gray-50 ${className}`}
-    style={{ borderColor: C.inkSoft, color: C.ink, opacity: (disabled || loading) ? 0.6 : 1, backgroundColor: '#fff' }}
+    className={`px-6 py-3 rounded-xl text-sm font-bold border transition-colors flex items-center justify-center gap-2 
+      border-[var(--border-color)] bg-[var(--bg-paper)] text-[var(--text-primary)] hover:bg-[var(--bg-paper-hover)]
+      disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
   >
     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (Icon && <Icon className="w-4 h-4" />)}
     {children}
@@ -216,27 +206,27 @@ const SecondaryButton = ({ children, onClick, disabled, loading, icon: Icon, cla
 );
 
 const HeaderStat = ({ label, value }: { label: string, value: string|number }) => (
-  <div>
-    <p className="text-[10px] uppercase font-bold tracking-widest" style={{ color: C.inkSoft }}>{label}</p>
-    <p className="text-xl font-bold" style={{ color: C.ink }}>{value}</p>
+  <div className="flex flex-col">
+    <span className="text-[10px] uppercase font-bold tracking-widest text-[var(--text-muted)] mb-1">{label}</span>
+    <span className="text-xl font-bold font-serif text-[var(--text-primary)]">{value}</span>
   </div>
 );
-
-const ErrorNote = ({ children }: { children: React.ReactNode }) => {
-  if (!children) return null;
-  return (
-    <div className="p-4 rounded-lg mb-4 text-sm font-medium flex gap-3 items-start" style={{ backgroundColor: '#FEE2E2', color: '#991B1B' }}>
-      <AlertCircle className="w-5 h-5 shrink-0" />
-      <div>{children}</div>
-    </div>
-  );
-};
 
 // Main Component
 export default function LabResearchAgent() {
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Theme state
+  const [isDark, setIsDark] = useState(() => {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    if (isDark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  }, [isDark]);
   
   // Projects state
   const [projectId, setProjectId] = useState<string>('');
@@ -313,22 +303,7 @@ export default function LabResearchAgent() {
         startNewProject();
       }
     } else {
-      // Migrate old state if exists
-      const oldState = mockStorage.getItem('lab_research_state');
-      if (oldState) {
-        try {
-          const parsed = JSON.parse(oldState);
-          parsed.id = Date.now().toString();
-          parsed.updatedAt = Date.now();
-          setProjectsList([parsed]);
-          loadProject(parsed);
-          mockStorage.setItem('lab_research_projects', JSON.stringify([parsed]));
-        } catch(e) {
-          startNewProject();
-        }
-      } else {
-        startNewProject();
-      }
+      startNewProject();
     }
   }, []);
 
@@ -355,11 +330,11 @@ export default function LabResearchAgent() {
   const handlePrev = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
   const steps = [
-    { id: 1, label: 'Specimen', icon: Beaker },
-    { id: 2, label: 'Panel', icon: Search },
-    { id: 3, label: 'Protocol', icon: FileSpreadsheet },
-    { id: 4, label: 'Results', icon: BarChart2 },
-    { id: 5, label: 'Report', icon: PenTool }
+    { id: 1, label: 'Parameters', desc: 'Define clinical focus', icon: Microscope },
+    { id: 2, label: 'Literature', desc: 'Identify research gaps', icon: BookOpen },
+    { id: 3, label: 'Protocol', desc: 'Draft study design', icon: FileText },
+    { id: 4, label: 'Inference', desc: 'Statistical analysis', icon: Database },
+    { id: 5, label: 'Manuscript', desc: 'Generate final paper', icon: PenTool }
   ];
 
   const handleGenerateGaps = async () => {
@@ -527,454 +502,546 @@ export default function LabResearchAgent() {
   };
 
   return (
-    <div className="h-screen w-full font-sans flex flex-col overflow-hidden" style={{ backgroundColor: C.paper, color: C.ink }}>
-      {/* History Modal Overlay */}
-      {showHistory && (
-        <div className="fixed inset-0 z-50 flex justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}>
-          <div className="w-full max-w-md h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300" style={{ backgroundColor: C.paper }}>
-            <div className="p-6 border-b flex justify-between items-center" style={{ borderColor: C.line, backgroundColor: C.paperAlt }}>
-              <h2 className="text-xl font-bold uppercase tracking-wide" style={{ color: C.ink }}>Saved Workspaces</h2>
-              <button onClick={() => setShowHistory(false)}><X className="w-6 h-6 hover:opacity-70 transition-opacity" style={{ color: C.ink }} /></button>
-            </div>
+    <div className="flex h-screen w-full overflow-hidden bg-[var(--bg-app)]">
+      
+      {/* Sidebar Navigation */}
+      <aside className="w-72 flex-shrink-0 bg-[var(--sidebar-bg)] border-r border-[var(--sidebar-border)] flex flex-col z-20 hidden md:flex">
+        <div className="p-8 border-b border-[var(--sidebar-border)] flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-primary-hover)] flex items-center justify-center shadow-lg">
+            <Activity className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold font-serif text-[var(--sidebar-text)] leading-tight">Synapse</h1>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--accent-primary)] font-bold">Research Studio</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-[var(--sidebar-text-muted)] mb-4 px-4 mt-4">Study Pipeline</div>
+          {steps.map((step) => {
+            const isActive = currentStep === step.id;
+            const isPast = currentStep > step.id;
+            const Icon = step.icon;
             
-            <div className="p-6 flex-1 overflow-y-auto flex flex-col gap-4">
-              <button 
-                onClick={startNewProject}
-                className="w-full flex items-center justify-center gap-2 py-4 rounded border-2 border-dashed hover:bg-white transition-colors"
-                style={{ borderColor: C.line, color: C.teal }}
+            return (
+              <button
+                key={step.id}
+                onClick={() => isPast ? setCurrentStep(step.id) : null}
+                disabled={!isPast && !isActive}
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all text-left
+                  ${isActive ? 'bg-[var(--sidebar-active)] text-white shadow-md' : 
+                    isPast ? 'text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover)]' : 
+                    'text-[var(--sidebar-text-muted)] opacity-50 cursor-not-allowed'}`}
               >
-                <Plus className="w-5 h-5" />
-                <span className="font-bold uppercase tracking-wider text-sm">Start New Study</span>
+                <div className={`p-2 rounded-lg ${isActive ? 'bg-white/20' : 'bg-[var(--sidebar-border)]'}`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold">{step.label}</div>
+                  <div className={`text-xs ${isActive ? 'text-white/80' : 'text-[var(--sidebar-text-muted)]'}`}>{step.desc}</div>
+                </div>
               </button>
-              
-              {projectsList.sort((a,b) => b.updatedAt - a.updatedAt).map(proj => (
-                <div 
-                  key={proj.id} 
-                  onClick={() => loadProject(proj)}
-                  className={`p-4 rounded border cursor-pointer transition-colors flex justify-between items-start group ${proj.id === projectId ? 'ring-2' : 'hover:bg-white'}`}
-                  style={{ borderColor: proj.id === projectId ? C.teal : C.line, backgroundColor: proj.id === projectId ? 'white' : 'transparent', ringColor: C.teal }}
-                >
-                  <div className="flex-1 pr-4">
-                    <p className="text-sm font-bold uppercase tracking-wider mb-1 line-clamp-2 leading-snug" style={{ color: C.tealDark }}>
-                      {proj.formData.topic || "Untitled Study"}
-                    </p>
-                    <p className="text-[11px] uppercase tracking-widest font-semibold" style={{ color: C.inkSoft }}>
-                      Phase {proj.currentStep} &middot; {new Date(proj.updatedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <button 
-                    onClick={(e) => deleteProject(proj.id, e)}
-                    className="p-2 rounded hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
-                    title="Delete project"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+            )
+          })}
+        </nav>
 
-      {/* Top Header */}
-      <header className="px-8 py-4 border-b flex items-center justify-between shrink-0" style={{ backgroundColor: C.paperAlt, borderColor: C.line }}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: C.teal }}>
-            <Beaker className="w-6 h-6" />
-          </div>
-          <h1 className="font-bold text-xl tracking-tight uppercase" style={{ color: C.ink }}>LabResearchAgent</h1>
+        <div className="p-4 border-t border-[var(--sidebar-border)]">
+           <button 
+             onClick={() => setShowHistory(true)}
+             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover)] transition-colors border border-[var(--sidebar-border)]"
+           >
+             <FolderOpen className="w-4 h-4 text-[var(--accent-primary)]" />
+             <span className="text-sm font-bold">Workspace Memory</span>
+           </button>
         </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
         
-        <div className="flex gap-6 items-center">
-          <button 
-            onClick={() => setShowHistory(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-bold uppercase tracking-wider hover:bg-gray-50 transition-colors"
-            style={{ borderColor: C.line, color: C.ink, backgroundColor: 'white' }}
-          >
-            <FolderOpen className="w-4 h-4" style={{ color: C.teal }} />
-            Workspace
+        {/* Mobile Header (Hidden on Desktop) */}
+        <header className="md:hidden p-4 border-b border-[var(--border-color)] bg-[var(--bg-paper)] flex justify-between items-center z-10">
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)] flex items-center justify-center">
+               <Activity className="w-4 h-4 text-white" />
+             </div>
+             <h1 className="text-lg font-bold font-serif text-[var(--text-primary)]">Synapse</h1>
+          </div>
+          <button onClick={() => setShowHistory(true)} className="p-2 rounded-lg bg-[var(--bg-paper-hover)]">
+            <FolderOpen className="w-5 h-5 text-[var(--text-primary)]" />
           </button>
-          
-          <div className="flex flex-col items-end border-l pl-6" style={{ borderColor: C.line }}>
-            <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: C.inkSoft }}>Status</span>
-            <span className="text-sm font-semibold flex items-center gap-1" style={{ color: C.teal }}>
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: C.teal }}></div>
-              Phase {currentStep} Active
-            </span>
-          </div>
+        </header>
+
+        {/* Topbar Actions */}
+        <div className="absolute top-6 right-8 z-10 hidden md:flex items-center gap-4">
+          <button 
+            onClick={() => setIsDark(!isDark)}
+            className="p-3 rounded-full bg-[var(--bg-paper)] border border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--bg-paper-hover)] transition-colors shadow-sm"
+          >
+            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
         </div>
-      </header>
 
-      {/* Phase Navigation Tabs */}
-      <nav className="flex border-b bg-white shrink-0" style={{ borderColor: C.line }}>
-        {steps.map((step) => {
-          const isActive = currentStep === step.id;
-          const isPast = currentStep > step.id;
-          return (
-            <button
-              key={step.id}
-              onClick={() => isPast ? setCurrentStep(step.id) : null}
-              disabled={!isPast && !isActive}
-              className={`flex-1 py-3 text-center text-xs font-bold uppercase tracking-widest transition-all ${
-                isActive ? 'border-b-4' : 'border-r opacity-50'
-              }`}
-              style={{
-                borderColor: isActive ? C.teal : C.line,
-                backgroundColor: isActive ? C.paper : 'transparent',
-                color: isActive ? C.teal : C.inkSoft,
-                cursor: isPast || isActive ? 'pointer' : 'not-allowed'
-              }}
-            >
-              0{step.id} {step.label}
-            </button>
-          )
-        })}
-      </nav>
-
-      <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-5xl mx-auto pb-20">
-          <ErrorNote>{error}</ErrorNote>
-
-        {/* Phase 1: Specimen */}
-        {currentStep === 1 && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <SectionCard title="Study Parameters" subtitle="Define the clinical setting and focus of your diagnostic study.">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-bold mb-2" style={{ color: C.ink }}>Research Topic</label>
-                  <input 
-                    className="w-full p-3 border rounded-lg focus:ring-2 focus:outline-none transition-shadow"
-                    style={{ borderColor: C.line }}
-                    placeholder="e.g. Troponin I vs Troponin T performance"
-                    value={formData.topic}
-                    onChange={(e) => setFormData({...formData, topic: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold mb-2" style={{ color: C.ink }}>Population</label>
-                  <input 
-                    className="w-full p-3 border rounded-lg focus:ring-2 focus:outline-none transition-shadow"
-                    style={{ borderColor: C.line }}
-                    placeholder="e.g. Emergency Department patients with chest pain"
-                    value={formData.population}
-                    onChange={(e) => setFormData({...formData, population: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold mb-2" style={{ color: C.ink }}>Laboratory Section</label>
-                  <select 
-                    className="w-full p-3 border rounded-lg bg-white"
-                    style={{ borderColor: C.line }}
-                    value={formData.labSection}
-                    onChange={(e) => setFormData({...formData, labSection: e.target.value})}
-                  >
-                    {['Hematology', 'Clinical Chemistry', 'Microbiology', 'Blood Bank', 'Immunology', 'Molecular Diagnostics'].map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold mb-2" style={{ color: C.ink }}>Study Type</label>
-                  <select 
-                    className="w-full p-3 border rounded-lg bg-white"
-                    style={{ borderColor: C.line }}
-                    value={formData.studyType}
-                    onChange={(e) => setFormData({...formData, studyType: e.target.value})}
-                  >
-                    {['Method Comparison', 'Reference Interval', 'Diagnostic Accuracy', 'Quality Control Evaluation', 'Workflow Analysis'].map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="mt-8 flex justify-end">
-                <PrimaryButton onClick={handleNext} icon={ArrowRight}>Proceed to Literature Search</PrimaryButton>
-              </div>
-            </SectionCard>
-          </div>
-        )}
-
-        {/* Phase 2: Panel */}
-        {currentStep === 2 && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-end mb-6">
-              <div>
-                <Eyebrow>Literature Review</Eyebrow>
-                <h2 className="text-2xl font-bold" style={{ color: C.ink }}>Identify Research Gaps</h2>
-              </div>
-              <PrimaryButton onClick={handleGenerateGaps} loading={loading} icon={Search}>Search Recent Literature</PrimaryButton>
-            </div>
+        <main className="flex-1 overflow-y-auto p-6 md:p-12 relative z-0">
+          <div className="max-w-4xl mx-auto pb-24">
             
-            {gaps.length > 0 ? (
-              <div className="space-y-4">
-                {gaps.map((gap, idx) => (
-                  <div 
-                    key={idx} 
-                    onClick={() => setSelectedGap(gap)}
-                    className={`p-5 rounded-xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'shadow-md scale-[1.01]' : 'hover:bg-gray-50'}`}
-                    style={{ 
-                      borderColor: selectedGap === gap ? C.teal : C.line,
-                      backgroundColor: selectedGap === gap ? C.paperAlt : '#fff'
-                    }}
-                  >
-                    <div className="flex gap-4">
-                      <div className="pt-1">
-                        <CheckCircle className={`w-5 h-5 ${selectedGap === gap ? 'text-teal-700' : 'text-gray-300'}`} />
+            <AnimatePresence mode="wait">
+              {error && (
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mb-6">
+                   <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-900/50 flex items-start gap-3">
+                     <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                     <p className="text-sm font-medium">{error}</p>
+                   </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence mode="wait">
+            
+            {/* Phase 1: Specimen */}
+            {currentStep === 1 && (
+              <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="mb-10">
+                  <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-primary)] mb-2 block">Phase 01</span>
+                  <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Study Parameters</h2>
+                  <p className="text-[var(--text-secondary)] mt-2">Define the clinical setting and focus of your diagnostic study.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <SectionCard className="md:col-span-2 m-0 border-none shadow-md bg-[var(--bg-paper)]">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-bold mb-2 text-[var(--text-primary)]">Research Topic</label>
+                        <input 
+                          className="w-full p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent outline-none transition-all"
+                          placeholder="e.g. Troponin I vs Troponin T performance"
+                          value={formData.topic}
+                          onChange={(e) => setFormData({...formData, topic: e.target.value})}
+                        />
                       </div>
-                      <p className="text-sm leading-relaxed font-medium" style={{ color: C.ink }}>{gap}</p>
+                      <div>
+                        <label className="block text-sm font-bold mb-2 text-[var(--text-primary)]">Patient Population</label>
+                        <input 
+                          className="w-full p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent outline-none transition-all"
+                          placeholder="e.g. Emergency Department chest pain"
+                          value={formData.population}
+                          onChange={(e) => setFormData({...formData, population: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold mb-2 text-[var(--text-primary)]">Laboratory Section</label>
+                        <select 
+                          className="w-full p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent outline-none transition-all appearance-none"
+                          value={formData.labSection}
+                          onChange={(e) => setFormData({...formData, labSection: e.target.value})}
+                        >
+                          {['Hematology', 'Clinical Chemistry', 'Microbiology', 'Blood Bank', 'Immunology', 'Molecular Diagnostics'].map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold mb-2 text-[var(--text-primary)]">Study Type</label>
+                        <select 
+                          className="w-full p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--text-primary)] focus:ring-2 focus:ring-[var(--accent-primary)] focus:border-transparent outline-none transition-all appearance-none"
+                          value={formData.studyType}
+                          onChange={(e) => setFormData({...formData, studyType: e.target.value})}
+                        >
+                          {['Method Comparison', 'Reference Interval', 'Diagnostic Accuracy', 'Quality Control Evaluation', 'Workflow Analysis'].map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                  </div>
-                ))}
-                
-                <div className="mt-8 flex justify-between pt-6 border-t" style={{ borderColor: C.line }}>
-                  <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
-                  <PrimaryButton onClick={handleGenerateProtocol} loading={loading} disabled={!selectedGap}>Draft Study Protocol</PrimaryButton>
+                  </SectionCard>
                 </div>
-              </div>
-            ) : (
-              <SectionCard>
-                <div className="text-center py-12">
-                  <Search className="w-12 h-12 mx-auto mb-4 opacity-20" style={{ color: C.ink }} />
-                  <p style={{ color: C.inkSoft }}>Click "Search Recent Literature" to ground the AI in recent publications and find actionable research gaps.</p>
+                <div className="flex justify-end pt-4">
+                  <PrimaryButton onClick={handleNext} icon={ArrowRight}>Proceed to Literature Search</PrimaryButton>
                 </div>
-              </SectionCard>
+              </motion.div>
             )}
-          </div>
-        )}
 
-        {/* Phase 3: Protocol */}
-        {currentStep === 3 && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2">
-                <SectionCard title="Study Protocol">
-                  <MarkdownLite content={protocol.text || "No protocol generated yet."} />
-                </SectionCard>
-              </div>
-              <div>
-                <SectionCard title="Data Dictionary">
-                  <p className="text-sm mb-4" style={{ color: C.inkSoft }}>The AI has determined these variables are required to conduct the study.</p>
-                  
-                  {protocol.template ? (
-                    <div className="bg-gray-50 p-4 rounded border font-mono text-xs overflow-x-auto mb-6 whitespace-nowrap" style={{ borderColor: C.line }}>
-                      {protocol.template}
+            {/* Phase 2: Literature */}
+            {currentStep === 2 && (
+              <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+                  <div>
+                    <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-primary)] mb-2 block">Phase 02</span>
+                    <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Literature Review</h2>
+                    <p className="text-[var(--text-secondary)] mt-2">Identify high-impact research gaps using AI grounded in recent literature.</p>
+                  </div>
+                  <PrimaryButton onClick={handleGenerateGaps} loading={loading} icon={Search}>Generate Novel Gaps</PrimaryButton>
+                </div>
+                
+                {gaps.length > 0 ? (
+                  <div className="space-y-4">
+                    {gaps.map((gap, idx) => (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.1 }}
+                        key={idx} 
+                        onClick={() => setSelectedGap(gap)}
+                        className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
+                      >
+                        <div className="flex gap-4">
+                          <div className="pt-1 shrink-0">
+                            <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                          </div>
+                          <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                    
+                    <div className="mt-8 flex justify-between pt-8 border-t border-[var(--border-color)]">
+                      <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
+                      <PrimaryButton onClick={handleGenerateProtocol} loading={loading} disabled={!selectedGap}>Draft Study Protocol</PrimaryButton>
                     </div>
-                  ) : (
-                     <div className="text-sm text-gray-400 italic mb-6">No template available.</div>
-                  )}
-                  
-                  <PrimaryButton 
-                    className="w-full mb-4" 
-                    icon={Download}
-                    disabled={!protocol.template}
-                    onClick={() => {
-                      const blob = new Blob([protocol.template], { type: 'text/csv' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = 'study_template.csv';
-                      a.click();
-                    }}
-                  >
-                    Download CSV Template
-                  </PrimaryButton>
-                  
-                  <div className="pt-6 border-t flex gap-2" style={{ borderColor: C.line }}>
-                    <SecondaryButton onClick={handlePrev} className="flex-1">Back</SecondaryButton>
-                    <PrimaryButton onClick={handleNext} className="flex-1">Next Phase</PrimaryButton>
                   </div>
-                </SectionCard>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Phase 4: Results */}
-        {currentStep === 4 && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <Eyebrow>Data Processing</Eyebrow>
-            <h2 className="text-2xl font-bold mb-6" style={{ color: C.ink }}>Statistical Analysis</h2>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              
-              <div className="lg:col-span-1 space-y-6">
-                <SectionCard title="Upload Data">
-                  <p className="text-xs mb-2" style={{ color: C.inkSoft }}>Paste your CSV data (including headers) below.</p>
-                  <textarea 
-                    className="w-full h-48 p-3 border rounded text-xs font-mono mb-4 focus:outline-none focus:ring-1"
-                    style={{ borderColor: C.line, backgroundColor: '#fff' }}
-                    placeholder="Patient_ID,Age,Sex,Result\n1,45,M,2.4..."
-                    value={csvData}
-                    onChange={(e) => setCsvData(e.target.value)}
-                  />
-                  <div className="flex justify-between items-center text-xs" style={{ color: C.inkSoft }}>
-                    <span>{headers.length} columns</span>
-                    <span>{parsedCsv.rows.length} rows</span>
-                  </div>
-                </SectionCard>
-
-                {headers.length > 0 && (
-                  <SectionCard title="Run Test">
-                     <select className="w-full p-2 mb-3 border rounded text-sm" value={analysis.col1} onChange={e => setAnalysis({...analysis, col1: e.target.value})}>
-                       <option value="">Select Column 1...</option>
-                       {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                     </select>
-                     <select className="w-full p-2 mb-4 border rounded text-sm" value={analysis.col2} onChange={e => setAnalysis({...analysis, col2: e.target.value})}>
-                       <option value="">Select Column 2...</option>
-                       {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                     </select>
-                     <PrimaryButton className="w-full" onClick={runAnalysis} loading={loading} icon={PlayCircle}>Run Inference</PrimaryButton>
+                ) : (
+                  <SectionCard className="text-center py-20 bg-transparent border-dashed">
+                    <BookOpen className="w-16 h-16 mx-auto mb-6 opacity-20 text-[var(--text-primary)]" />
+                    <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">Click the button above to scan recent scientific literature and generate actionable research hypotheses.</p>
                   </SectionCard>
                 )}
-              </div>
+              </motion.div>
+            )}
 
-              <div className="lg:col-span-3">
-                {!csvData ? (
-                   <div className="h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-12 text-center" style={{ borderColor: C.line }}>
-                     <FileSpreadsheet className="w-12 h-12 mb-4 opacity-20" />
-                     <p className="text-gray-500">Paste your dataset to begin exploratory analysis.</p>
-                   </div>
-                ) : (
-                  <div className="space-y-6">
-                    {/* Test Results Output */}
-                    {analysis.result && (
-                      <div className="p-6 rounded-xl border mb-6" style={{ backgroundColor: C.rustPale, borderColor: C.rust }}>
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-[10px] uppercase font-black tracking-widest" style={{ color: C.rust }}>{analysis.result.name}</span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold text-white" style={{ backgroundColor: C.rust }}>{analysis.result.p < 0.05 ? 'SIGNIFICANT' : 'NOT SIGNIFICANT'}</span>
-                        </div>
-                        <div className="flex justify-between items-baseline mb-4">
-                           <span className="text-4xl font-bold" style={{ color: C.ink }}>{analysis.result.p < 0.001 ? '< 0.001' : analysis.result.p?.toFixed(4)}</span>
-                           <span className="text-sm font-bold" style={{ color: C.rust }}>p-value</span>
-                        </div>
-                        <div className="pt-4 border-t flex justify-between" style={{ borderColor: `${C.rust}33` }}>
-                          <HeaderStat label="Statistic" value={analysis.result.stat?.toFixed(3)} />
-                          <HeaderStat label="DF" value={analysis.result.df?.toFixed(1) || analysis.result.df} />
-                          <HeaderStat label="Test" value={analysis.result.name.includes('T-Test') ? 'Welch' : 'Chi-Sq'} />
-                        </div>
+            {/* Phase 3: Protocol */}
+            {currentStep === 3 && (
+              <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="mb-8">
+                  <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-primary)] mb-2 block">Phase 03</span>
+                  <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Study Protocol</h2>
+                  <p className="text-[var(--text-secondary)] mt-2">Generated methodology and required data dictionary.</p>
+                </div>
 
-                        <div className="mt-6 flex-1 bg-white p-6 rounded-xl border shadow-sm relative overflow-hidden" style={{ borderColor: C.line }}>
-                           <div className="absolute top-0 right-0 p-4">
-                             <div className="flex items-center gap-2 px-3 py-1 rounded-full border" style={{ backgroundColor: C.paper, borderColor: C.line }}>
-                               <Search className="w-3 h-3" style={{ color: C.teal }} strokeWidth={3} />
-                               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: C.teal }}>AI Interpretation</span>
-                             </div>
-                           </div>
-                           <div className="mt-6">
-                             {loading ? (
-                               <div className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin"/> Drafting interpretation...</div>
-                             ) : (
-                               <MarkdownLite content={analysis.interpretation} />
-                             )}
-                           </div>
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="xl:col-span-2">
+                    <SectionCard title="Methodology">
+                      <MarkdownLite content={protocol.text || "No protocol generated yet."} />
+                    </SectionCard>
+                  </div>
+                  <div>
+                    <SectionCard title="Data Dictionary">
+                      <p className="text-sm mb-6 text-[var(--text-secondary)]">The AI generated a structural template for data collection required for this study.</p>
+                      
+                      {protocol.template ? (
+                        <div className="bg-[var(--bg-app)] p-4 rounded-xl border border-[var(--border-color)] font-mono text-[11px] overflow-x-auto mb-6 whitespace-nowrap text-[var(--text-primary)]">
+                          {protocol.template}
+                        </div>
+                      ) : (
+                         <div className="text-sm italic mb-6 text-[var(--text-muted)]">No template available.</div>
+                      )}
+                      
+                      <PrimaryButton 
+                        className="w-full mb-6" 
+                        icon={Download}
+                        disabled={!protocol.template}
+                        onClick={() => {
+                          const blob = new Blob([protocol.template], { type: 'text/csv' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = 'study_template.csv';
+                          a.click();
+                        }}
+                      >
+                        Download CSV Template
+                      </PrimaryButton>
+                      
+                      <div className="pt-6 border-t border-[var(--border-color)] flex flex-col gap-3">
+                        <PrimaryButton onClick={handleNext} className="w-full">Proceed to Analysis</PrimaryButton>
+                        <SecondaryButton onClick={handlePrev} className="w-full">Back</SecondaryButton>
+                      </div>
+                    </SectionCard>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Phase 4: Analysis */}
+            {currentStep === 4 && (
+              <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="mb-8">
+                  <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-primary)] mb-2 block">Phase 04</span>
+                  <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Statistical Analysis</h2>
+                  <p className="text-[var(--text-secondary)] mt-2">Upload your collected CSV data and run automated statistical inference.</p>
+                </div>
+                
+                <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+                  
+                  <div className="xl:col-span-1 space-y-6">
+                    <SectionCard title="Data Input" className="!p-5">
+                      <p className="text-xs mb-3 text-[var(--text-secondary)]">Paste your CSV contents below.</p>
+                      <textarea 
+                        className="w-full h-48 p-4 border rounded-xl text-xs font-mono mb-4 bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+                        placeholder="Patient_ID,Age,Sex,Result\n1,45,M,2.4..."
+                        value={csvData}
+                        onChange={(e) => setCsvData(e.target.value)}
+                      />
+                      <div className="flex justify-between items-center text-xs text-[var(--text-muted)] font-bold tracking-wider uppercase">
+                        <span>{headers.length} columns</span>
+                        <span>{parsedCsv.rows.length} rows</span>
+                      </div>
+                    </SectionCard>
+
+                    <AnimatePresence>
+                      {headers.length > 0 && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                          <SectionCard title="Inference Engine" className="!p-5 border-l-4 border-l-[var(--accent-primary)]">
+                             <select className="w-full p-3 mb-3 border rounded-xl text-sm bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] appearance-none outline-none focus:ring-2" value={analysis.col1} onChange={e => setAnalysis({...analysis, col1: e.target.value})}>
+                               <option value="">Select Target A...</option>
+                               {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                             </select>
+                             <select className="w-full p-3 mb-4 border rounded-xl text-sm bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] appearance-none outline-none focus:ring-2" value={analysis.col2} onChange={e => setAnalysis({...analysis, col2: e.target.value})}>
+                               <option value="">Select Target B...</option>
+                               {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                             </select>
+                             <PrimaryButton className="w-full" onClick={runAnalysis} loading={loading} icon={PlayCircle}>Run Test</PrimaryButton>
+                          </SectionCard>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="xl:col-span-3">
+                    {!csvData ? (
+                       <div className="h-full flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center border-[var(--border-color)] bg-[var(--bg-paper)] min-h-[400px]">
+                         <FileSpreadsheet className="w-16 h-16 mb-6 opacity-20 text-[var(--text-primary)]" />
+                         <p className="text-[var(--text-secondary)] text-lg">Provide a dataset to activate the inference engine.</p>
+                       </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {/* Test Results Output */}
+                        {analysis.result && (
+                          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="p-8 rounded-3xl border border-[var(--border-color)] bg-[var(--bg-paper)] shadow-lg relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[var(--accent-primary)] to-indigo-500"></div>
+                            
+                            <div className="flex justify-between items-start mb-4 mt-2">
+                              <span className="text-sm uppercase font-black tracking-widest text-[var(--accent-primary)]">{analysis.result.name}</span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${analysis.result.p < 0.05 ? 'bg-[var(--accent-primary)]' : 'bg-[var(--text-muted)]'}`}>
+                                {analysis.result.p < 0.05 ? 'SIGNIFICANT' : 'NOT SIGNIFICANT'}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-end gap-3 mb-8">
+                               <span className="text-6xl font-bold font-serif text-[var(--text-primary)] leading-none tracking-tighter">
+                                 {analysis.result.p < 0.001 ? '< 0.001' : analysis.result.p?.toFixed(4)}
+                               </span>
+                               <span className="text-lg font-bold text-[var(--text-muted)] mb-1">p-value</span>
+                            </div>
+                            
+                            <div className="pt-6 border-t border-[var(--border-color)] flex gap-12">
+                              <HeaderStat label="Statistic" value={analysis.result.stat?.toFixed(3)} />
+                              <HeaderStat label="Degrees of Freedom" value={analysis.result.df?.toFixed(1) || analysis.result.df} />
+                            </div>
+
+                            <div className="mt-8 p-6 rounded-2xl bg-[var(--bg-app)] border border-[var(--border-color)] relative">
+                               <div className="flex items-center gap-2 mb-4">
+                                 <Activity className="w-4 h-4 text-[var(--accent-primary)]" strokeWidth={3} />
+                                 <span className="text-xs font-black uppercase tracking-widest text-[var(--accent-primary)]">Automated Interpretation</span>
+                               </div>
+                               <div>
+                                 {loading ? (
+                                   <div className="flex items-center gap-3 text-[var(--text-muted)]"><Loader2 className="w-5 h-5 animate-spin"/> Synthesizing clinical interpretation...</div>
+                                 ) : (
+                                   <MarkdownLite content={analysis.interpretation} />
+                                 )}
+                               </div>
+                            </div>
+                          </motion.div>
+                        )}
+                        
+                        {/* Auto-Summary distributions */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {headers.slice(0, 4).map((col, idx) => {
+                            const colIdx = headers.indexOf(col);
+                            const vals = parsedCsv.rows.map(r => r[colIdx]);
+                            const type = detectType(vals);
+                            
+                            if (type === 'numeric') {
+                              const stats = describeNumeric(vals);
+                              return (
+                                <SectionCard key={col} title={col} subtitle="Numeric Variable" className="!p-6">
+                                   <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+                                     <HeaderStat label="Mean" value={stats.mean.toFixed(2)} />
+                                     <HeaderStat label="Median" value={stats.median.toFixed(2)} />
+                                     <HeaderStat label="Min" value={stats.min.toFixed(2)} />
+                                     <HeaderStat label="Max" value={stats.max.toFixed(2)} />
+                                   </div>
+                                </SectionCard>
+                              )
+                            } else {
+                              const stats = describeCategorical(vals);
+                              const chartData = stats.slice(0, 5);
+                              return (
+                                 <SectionCard key={col} title={col} subtitle="Categorical Variable" className="!p-6">
+                                    <div className="h-40 w-full mt-2">
+                                      <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border-color)" />
+                                          <XAxis type="number" hide />
+                                          <YAxis dataKey="label" type="category" width={80} tick={{ fontSize: 11, fill: 'var(--text-muted)', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                                          <Tooltip cursor={{fill: 'var(--bg-paper-hover)'}} contentStyle={{ borderRadius: '12px', border: `1px solid var(--border-color)`, backgroundColor: 'var(--bg-paper)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 'bold' }} />
+                                          <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                                            {chartData.map((entry, index) => (
+                                              <Cell key={`cell-${index}`} fill="var(--accent-primary)" opacity={1 - (index * 0.15)} />
+                                            ))}
+                                          </Bar>
+                                        </BarChart>
+                                      </ResponsiveContainer>
+                                    </div>
+                                 </SectionCard>
+                              )
+                            }
+                          })}
+                        </div>
+                        
+                        <div className="flex justify-between pt-6 border-t border-[var(--border-color)]">
+                           <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
+                           <PrimaryButton onClick={handleNext} disabled={!analysis.result}>Draft Manuscript</PrimaryButton>
                         </div>
                       </div>
                     )}
-                    
-                    {/* Auto-Summary of first numeric and categorical column for visual proof */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {headers.slice(0, 4).map((col, idx) => {
-                        const colIdx = headers.indexOf(col);
-                        const vals = parsedCsv.rows.map(r => r[colIdx]);
-                        const type = detectType(vals);
-                        
-                        if (type === 'numeric') {
-                          const stats = describeNumeric(vals);
-                          return (
-                            <SectionCard key={col} title={col} subtitle="Numeric Variable">
-                               <div className="grid grid-cols-2 gap-4">
-                                 <HeaderStat label="Mean" value={stats.mean.toFixed(2)} />
-                                 <HeaderStat label="Median" value={stats.median.toFixed(2)} />
-                                 <HeaderStat label="Min" value={stats.min.toFixed(2)} />
-                                 <HeaderStat label="Max" value={stats.max.toFixed(2)} />
-                               </div>
-                            </SectionCard>
-                          )
-                        } else {
-                          const stats = describeCategorical(vals);
-                          const chartData = stats.slice(0, 5); // top 5
-                          return (
-                             <SectionCard key={col} title={col} subtitle="Categorical Variable">
-                                <div className="h-40 w-full mt-2">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={C.line} />
-                                      <XAxis type="number" hide />
-                                      <YAxis dataKey="label" type="category" width={80} tick={{ fontSize: 10, fill: C.inkSoft }} axisLine={false} tickLine={false} />
-                                      <Tooltip cursor={{fill: C.paper}} contentStyle={{ borderRadius: '8px', border: `1px solid ${C.line}`, fontSize: '12px' }} />
-                                      <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                                        {chartData.map((entry, index) => (
-                                          <Cell key={`cell-${index}`} fill={index === 0 ? C.teal : C.tealDark} opacity={1 - (index * 0.15)} />
-                                        ))}
-                                      </Bar>
-                                    </BarChart>
-                                  </ResponsiveContainer>
-                                </div>
-                             </SectionCard>
-                          )
-                        }
-                      })}
-                    </div>
-                    
-                    <div className="flex justify-end pt-4">
-                       <PrimaryButton onClick={handleNext} disabled={!analysis.result}>Draft Manuscript</PrimaryButton>
-                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
+            {/* Phase 5: Report */}
+            {currentStep === 5 && (
+              <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+                  <div>
+                    <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-primary)] mb-2 block">Phase 05</span>
+                    <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Final Manuscript</h2>
+                    <p className="text-[var(--text-secondary)] mt-2">Generate a fully drafted academic paper based on your results.</p>
+                  </div>
+                  <div className="flex gap-3">
+                    {report && <SecondaryButton onClick={copyReport} icon={Clipboard}>Copy Text</SecondaryButton>}
+                    <PrimaryButton onClick={generateReport} loading={loading} icon={PenTool}>{report ? "Regenerate" : "Draft Manuscript"}</PrimaryButton>
+                  </div>
+                </div>
+
+                {!report && !loading && (
+                  <SectionCard className="text-center py-24 bg-transparent border-dashed">
+                     <PenTool className="w-16 h-16 mx-auto mb-6 opacity-20 text-[var(--text-primary)]" />
+                     <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">Click "Draft Manuscript" to instruct the LLM to write a complete academic paper using your statistical findings and literature gap.</p>
+                  </SectionCard>
+                )}
+
+                {loading && (
+                  <SectionCard className="text-center py-32 flex flex-col items-center justify-center">
+                    <Loader2 className="w-12 h-12 animate-spin text-[var(--accent-primary)] mb-6" />
+                    <h3 className="text-xl font-bold font-serif text-[var(--text-primary)] mb-2">Drafting Manuscript...</h3>
+                    <p className="text-[var(--text-muted)] max-w-sm">Synthesizing introduction, methods, results, and discussion into an academic format with real citations.</p>
+                  </SectionCard>
+                )}
+
+                {report && !loading && (
+                  <div className="bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-3xl p-8 md:p-16 shadow-lg max-w-4xl mx-auto">
+                    <div className="text-center mb-16 border-b border-[var(--border-color)] pb-12">
+                       <h1 className="text-3xl md:text-5xl font-bold font-serif mb-6 text-[var(--text-primary)] leading-tight">
+                         {formData.topic}
+                       </h1>
+                       <p className="text-xl italic font-serif text-[var(--text-secondary)]">A study in {formData.population}</p>
+                    </div>
+                    
+                    {['introduction', 'methods', 'results', 'discussion', 'conclusion', 'references'].map((section) => (
+                      <div key={section} className="mb-12">
+                        <h3 className="text-2xl font-bold font-serif mb-6 uppercase tracking-wider text-[var(--text-primary)] border-b border-[var(--border-color)] pb-3">
+                          {section}
+                        </h3>
+                        <MarkdownLite content={report[section] || ''} />
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Phase 5: Report */}
-        {currentStep === 5 && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-end mb-6">
-              <div>
-                <Eyebrow>Final Output</Eyebrow>
-                <h2 className="text-2xl font-bold" style={{ color: C.ink }}>Academic Manuscript</h2>
-              </div>
-              <div className="flex gap-3">
-                <SecondaryButton onClick={generateReport} loading={loading} icon={RefreshCcw}>Generate Draft</SecondaryButton>
-                {report && <PrimaryButton onClick={copyReport} icon={Clipboard}>Copy Text</PrimaryButton>}
-              </div>
-            </div>
-            
-            {!report && !loading ? (
-               <SectionCard>
-                 <div className="text-center py-12">
-                   <PenTool className="w-12 h-12 mx-auto mb-4 opacity-20" style={{ color: C.ink }} />
-                   <p style={{ color: C.inkSoft }}>Click "Generate Draft" to write the 5-part manuscript using your protocol and analysis.</p>
-                 </div>
-               </SectionCard>
-            ) : (
-              <div className="space-y-8 max-w-3xl mx-auto pb-8">
-                <div className="text-center mb-10">
-                   <h1 className="text-3xl font-bold mb-4 uppercase" style={{ color: C.ink }}>{formData.topic}</h1>
-                   <p className="text-lg italic" style={{ color: C.inkSoft }}>A study in {formData.population}</p>
-                </div>
-                
-                {['introduction', 'methods', 'results', 'discussion', 'conclusion', 'references'].map((section) => (
-                  <div key={section} className="mb-8">
-                    <h3 className="text-xl font-bold mb-4 uppercase tracking-wider border-b pb-2" style={{ color: C.tealDark, borderColor: C.line }}>
-                      {section}
-                    </h3>
-                    <div className="text-sm leading-relaxed" style={{ color: C.ink }}>
-                       {loading && !report?.[section] ? (
-                         <div className="flex gap-2 items-center text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/> Drafting {section}...</div>
-                       ) : (
-                         <MarkdownLite content={report?.[section] || ''} />
-                       )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              </motion.div>
             )}
+
+            </AnimatePresence>
           </div>
+        </main>
+      </div>
+
+      {/* History Slide-over */}
+      <AnimatePresence>
+        {showHistory && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setShowHistory(false)}
+              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 h-full w-full max-w-md z-50 bg-[var(--bg-paper)] shadow-2xl flex flex-col border-l border-[var(--border-color)]"
+            >
+              <div className="p-6 border-b border-[var(--border-color)] flex justify-between items-center bg-[var(--bg-app)]">
+                <div className="flex items-center gap-3">
+                  <FolderOpen className="w-5 h-5 text-[var(--accent-primary)]" />
+                  <h2 className="text-lg font-bold uppercase tracking-widest text-[var(--text-primary)]">Workspace</h2>
+                </div>
+                <button onClick={() => setShowHistory(false)} className="p-2 rounded-lg hover:bg-[var(--border-color)] text-[var(--text-secondary)] transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 flex-1 overflow-y-auto flex flex-col gap-4">
+                <button 
+                  onClick={startNewProject}
+                  className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed border-[var(--accent-primary)] text-[var(--accent-primary)] hover:bg-[var(--accent-primary-light)] dark:hover:bg-[var(--accent-primary)]/10 transition-colors shadow-sm"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span className="font-bold uppercase tracking-wider text-sm">Initialize New Study</span>
+                </button>
+                
+                <div className="mt-4 space-y-3">
+                  {projectsList.sort((a,b) => b.updatedAt - a.updatedAt).map(proj => (
+                    <div 
+                      key={proj.id} 
+                      onClick={() => loadProject(proj)}
+                      className={`p-5 rounded-xl border-2 cursor-pointer transition-all flex justify-between items-start group
+                        ${proj.id === projectId 
+                          ? 'border-[var(--accent-primary)] bg-[var(--bg-app)] shadow-md' 
+                          : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
+                    >
+                      <div className="flex-1 pr-4">
+                        <p className={`text-sm font-bold uppercase tracking-wider mb-2 line-clamp-2 leading-snug 
+                          ${proj.id === projectId ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]'}`}>
+                          {proj.formData.topic || "Untitled Study"}
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] px-2 py-1 rounded bg-[var(--bg-paper-hover)] uppercase tracking-widest font-bold text-[var(--text-secondary)]">
+                            Phase {proj.currentStep}
+                          </span>
+                          <span className="text-[10px] uppercase tracking-widest font-semibold text-[var(--text-muted)]">
+                            {new Date(proj.updatedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={(e) => deleteProject(proj.id, e)}
+                        className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-[var(--text-muted)] hover:text-red-600 transition-colors"
+                        title="Delete project"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
-        </div>
-      </main>
+      </AnimatePresence>
     </div>
   );
 }
