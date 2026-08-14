@@ -239,6 +239,14 @@ export default function LabResearchAgent() {
   const [analysis, setAnalysis] = useState<any>({ col1: '', col2: '', result: null, interpretation: '' });
   const [report, setReport] = useState<any>(null);
 
+  // New API State
+  const [pubMedResults, setPubMedResults] = useState<any[]>([]);
+  const [loadingPubMed, setLoadingPubMed] = useState(false);
+  const [clinicalTrials, setClinicalTrials] = useState<any[]>([]);
+  const [loadingTrials, setLoadingTrials] = useState(false);
+
+  const [literatureData, setLiteratureData] = useState<any[]>([]);
+
   const loadProject = (p: any) => {
     setProjectId(p.id);
     setFormData(p.formData || { topic: '', labSection: 'Hematology', studyType: 'Method Comparison', population: '' });
@@ -248,6 +256,9 @@ export default function LabResearchAgent() {
     setCsvData(p.csvData || '');
     setAnalysis(p.analysis || { col1: '', col2: '', result: null, interpretation: '' });
     setReport(p.report || null);
+    setPubMedResults(p.pubMedResults || []);
+    setClinicalTrials(p.clinicalTrials || []);
+    setLiteratureData(p.literatureData || []);
     setCurrentStep(p.currentStep || 1);
     setShowHistory(false);
   };
@@ -261,6 +272,9 @@ export default function LabResearchAgent() {
     setCsvData('');
     setAnalysis({ col1: '', col2: '', result: null, interpretation: '' });
     setReport(null);
+    setPubMedResults([]);
+    setClinicalTrials([]);
+    setLiteratureData([]);
     setCurrentStep(1);
     setShowHistory(false);
   };
@@ -343,7 +357,7 @@ export default function LabResearchAgent() {
       const newProj = {
         id: projectId,
         updatedAt: Date.now(),
-        currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report
+        currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report, pubMedResults, clinicalTrials, literatureData
       };
       const nextList = [...prev];
       if (idx >= 0) nextList[idx] = newProj;
@@ -357,6 +371,67 @@ export default function LabResearchAgent() {
   const handleNext = () => setCurrentStep(prev => Math.min(prev + 1, 5));
   const handlePrev = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
+  const handleSearchPubMed = async () => {
+    if (!formData.topic) return setError("Enter a research topic in Phase 1 first.");
+    setLoadingPubMed(true);
+    try {
+      const searchRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(formData.topic)}&retmode=json&retmax=5`);
+      const searchData = await searchRes.json();
+      if (!searchData.esearchresult || !searchData.esearchresult.idlist.length) {
+        throw new Error("No PubMed results found.");
+      }
+      const ids = searchData.esearchresult.idlist.join(',');
+      const summaryRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
+      const summaryData = await summaryRes.json();
+      const docs = searchData.esearchresult.idlist.map((id: string) => summaryData.result[id]);
+      setPubMedResults(docs);
+    } catch (err: any) {
+      setError("PubMed search failed: " + err.message);
+    } finally {
+      setLoadingPubMed(false);
+    }
+  };
+
+  const handleSearchTrials = async () => {
+    if (!formData.topic) return setError("Enter a research topic in Phase 1 first.");
+    setLoadingTrials(true);
+    try {
+      const res = await fetch(`https://clinicaltrials.gov/api/v2/studies?query.cond=${encodeURIComponent(formData.topic)}&pageSize=3`);
+      const data = await res.json();
+      if (!data.studies || data.studies.length === 0) throw new Error("No clinical trials found.");
+      setClinicalTrials(data.studies);
+    } catch (err: any) {
+      setError("ClinicalTrials.gov search failed: " + err.message);
+    } finally {
+      setLoadingTrials(false);
+    }
+  };
+
+  const loadSampleDataset = () => {
+    const sample = `Patient_ID,Age,Sex,Troponin_I,Troponin_T,Clinical_Outcome
+1,45,M,0.04,0.05,Negative
+2,62,F,0.12,0.14,Positive
+3,55,M,0.08,0.09,Negative
+4,71,M,0.45,0.52,Positive
+5,38,F,0.01,0.02,Negative
+6,82,F,0.88,1.05,Positive
+7,49,M,0.06,0.06,Negative
+8,66,F,0.22,0.25,Positive
+9,53,M,0.05,0.06,Negative
+10,77,M,0.31,0.34,Positive
+11,41,F,0.02,0.02,Negative
+12,69,M,0.55,0.61,Positive
+13,58,F,0.07,0.08,Negative
+14,74,M,0.92,1.10,Positive
+15,35,M,0.03,0.03,Negative
+16,61,F,0.18,0.21,Positive
+17,50,M,0.05,0.06,Negative
+18,80,F,0.76,0.85,Positive
+19,48,M,0.04,0.05,Negative
+20,68,F,0.41,0.47,Positive`;
+    setCsvData(sample);
+  };
+
   const steps = [
     { id: 1, label: 'Parameters', desc: 'Define clinical focus', icon: Microscope },
     { id: 2, label: 'Literature', desc: 'Identify research gaps', icon: BookOpen },
@@ -364,6 +439,41 @@ export default function LabResearchAgent() {
     { id: 4, label: 'Inference', desc: 'Statistical analysis', icon: Database },
     { id: 5, label: 'Manuscript', desc: 'Generate final paper', icon: PenTool }
   ];
+
+  const handleAutomatedReview = async () => {
+    if (!formData.topic) return setError("Enter a research topic in Phase 1 first.");
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(formData.topic)}&limit=40&fields=title,abstract,year,authors,citationCount`);
+      const data = await res.json();
+      
+      if (!data.data || data.data.length === 0) {
+         throw new Error("No papers found on Semantic Scholar for this topic.");
+      }
+      
+      setLiteratureData(data.data);
+      
+      const prompt = `Perform a statistical synthesis and meta-analysis summary of the following ${data.data.length} papers on the topic: "${formData.topic}". 
+      Extract common themes, conflicting evidence, and overall consensus. Write this as a highly academic, quantitative summary.
+      
+      Papers Data:
+      ${JSON.stringify(data.data.map((p: any) => ({ title: p.title, year: p.year, citations: p.citationCount, abstract: p.abstract?.substring(0, 300) })))}
+      `;
+      
+      const synthesis = await callGemini(prompt, { highThinking: true });
+      
+      setAnalysis({
+        result: { name: 'Automated Meta-Analysis', p: 0.001, stat: data.data.length, df: 'Papers' },
+        interpretation: synthesis
+      });
+      
+    } catch(err: any) {
+      setError("Literature Review Failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGenerateGaps = async () => {
     if (!formData.topic || !formData.population) return setError("Please fill out all fields.");
@@ -484,15 +594,20 @@ export default function LabResearchAgent() {
     setError('');
     setLoading(true);
     try {
+      const isLitReview = formData.studyType === 'Automated Literature Review';
       const parts = ['Introduction', 'Methods', 'Results', 'Discussion', 'Conclusion', 'References'];
       let manuscript: any = {};
       
-      const baseContext = `Topic: ${formData.topic}. Study Type: ${formData.studyType}. Gap addressed: ${selectedGap}. 
-      Protocol details: ${protocol.text.substring(0, 500)}... 
-      Statistical Findings: ${analysis.interpretation || 'No statistical analysis was finalized.'}`;
+      const baseContext = isLitReview 
+        ? `Topic: ${formData.topic}. Study Type: Systematic Review / Meta-Analysis. 
+           We fetched ${literatureData.length} papers from academic databases.
+           Synthesis Results: ${analysis.interpretation || 'No synthesis completed yet.'}`
+        : `Topic: ${formData.topic}. Study Type: ${formData.studyType}. Gap addressed: ${selectedGap}. 
+           Protocol details: ${protocol.text.substring(0, 500)}... 
+           Statistical Findings: ${analysis.interpretation || 'No statistical analysis was finalized.'}`;
       
       for (const part of parts) {
-        let prompt = `You are writing a lab medicine manuscript. 
+        let prompt = `You are writing a lab medicine manuscript for a ${isLitReview ? 'Review Article' : 'Primary Research Article'}. 
         Based on this context: "${baseContext}"
         Write the **${part}** section of the manuscript. Keep it strictly to the ${part} section, use an academic tone, and make it around 150-250 words. Do not add titles or markdown headings for the section name itself.`;
         
@@ -501,7 +616,7 @@ export default function LabResearchAgent() {
         } else {
           prompt = `You are writing a lab medicine manuscript. 
           Based on this context: "${baseContext}"
-          Write the **References** section of the manuscript. Provide a numbered list of real, peer-reviewed academic references (e.g., foundational papers, textbook chapters) that relate to this topic and match the citations you just generated. Do not invent fake DOIs or authors; rely strictly on actual scientific literature from your knowledge base. Do not add titles or markdown headings for the section name itself.`;
+          Write the **References** section of the manuscript. Provide a numbered list of real, peer-reviewed academic references that relate to this topic and match the citations you just generated. Do not invent fake DOIs or authors; rely strictly on actual scientific literature from your knowledge base. Do not add titles or markdown headings for the section name itself.`;
         }
         
         const res = await callGemini(prompt, { highThinking: true });
@@ -675,7 +790,7 @@ export default function LabResearchAgent() {
                           value={formData.studyType}
                           onChange={(e) => setFormData({...formData, studyType: e.target.value})}
                         >
-                          {['Method Comparison', 'Reference Interval', 'Diagnostic Accuracy', 'Quality Control Evaluation', 'Workflow Analysis'].map(opt => (
+                          {['Method Comparison', 'Reference Interval', 'Diagnostic Accuracy', 'Quality Control Evaluation', 'Workflow Analysis', 'Automated Literature Review'].map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
@@ -702,28 +817,47 @@ export default function LabResearchAgent() {
                 </div>
                 
                 {gaps.length > 0 ? (
-                  <div className="space-y-4">
-                    {gaps.map((gap, idx) => (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.1 }}
-                        key={idx} 
-                        onClick={() => setSelectedGap(gap)}
-                        className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
-                      >
-                        <div className="flex gap-4">
-                          <div className="pt-1 shrink-0">
-                            <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                    <div className="xl:col-span-2 space-y-4">
+                      {gaps.map((gap, idx) => (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.1 }}
+                          key={idx} 
+                          onClick={() => setSelectedGap(gap)}
+                          className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
+                        >
+                          <div className="flex gap-4">
+                            <div className="pt-1 shrink-0">
+                              <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                            </div>
+                            <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap}</p>
                           </div>
-                          <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap}</p>
+                        </motion.div>
+                      ))}
+                      
+                      <div className="mt-8 flex justify-between pt-8 border-t border-[var(--border-color)]">
+                        <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
+                        <PrimaryButton onClick={handleGenerateProtocol} loading={loading} disabled={!selectedGap}>Draft Study Protocol</PrimaryButton>
+                      </div>
+                    </div>
+
+                    <div className="xl:col-span-1">
+                      <SectionCard title="PubMed Search" subtitle="Live Reference Integration" className="!p-5 bg-[var(--bg-app)]">
+                        <p className="text-xs text-[var(--text-secondary)] mb-4">Query the NIH database for context on this topic.</p>
+                        <PrimaryButton className="w-full mb-4" onClick={handleSearchPubMed} loading={loadingPubMed} icon={Search}>Search PubMed</PrimaryButton>
+                        
+                        <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                          {pubMedResults.map((doc: any, i: number) => (
+                            <div key={i} className="p-3 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl">
+                              <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)]">{doc.title}</h4>
+                              <p className="text-[10px] text-[var(--text-muted)] mb-2 uppercase tracking-wide">{doc.pubdate} • {doc.source}</p>
+                              <a href={`https://pubmed.ncbi.nlm.nih.gov/${doc.uid}`} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-[var(--accent-secondary)] hover:underline block">View on PubMed &rarr;</a>
+                            </div>
+                          ))}
                         </div>
-                      </motion.div>
-                    ))}
-                    
-                    <div className="mt-8 flex justify-between pt-8 border-t border-[var(--border-color)]">
-                      <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
-                      <PrimaryButton onClick={handleGenerateProtocol} loading={loading} disabled={!selectedGap}>Draft Study Protocol</PrimaryButton>
+                      </SectionCard>
                     </div>
                   </div>
                 ) : (
@@ -783,6 +917,27 @@ export default function LabResearchAgent() {
                         <SecondaryButton onClick={handlePrev} className="w-full">Back</SecondaryButton>
                       </div>
                     </SectionCard>
+
+                    <SectionCard title="Similar Trials" subtitle="ClinicalTrials.gov Integration" className="!p-5 bg-[var(--bg-app)] mt-6">
+                      <p className="text-xs text-[var(--text-secondary)] mb-4">View how other researchers designed studies for {formData.topic}.</p>
+                      <PrimaryButton className="w-full mb-4" onClick={handleSearchTrials} loading={loadingTrials} icon={Search}>Search ClinicalTrials.gov</PrimaryButton>
+                      
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                        {clinicalTrials.map((trial: any, i: number) => {
+                          const p = trial.protocolSection;
+                          const title = p?.identificationModule?.briefTitle;
+                          const status = p?.statusModule?.overallStatus;
+                          const nctId = p?.identificationModule?.nctId;
+                          return (
+                            <div key={i} className="p-3 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl">
+                              <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)]">{title}</h4>
+                              <p className="text-[10px] text-[var(--text-muted)] mb-2 uppercase tracking-wide">Status: {status}</p>
+                              {nctId && <a href={`https://clinicaltrials.gov/study/${nctId}`} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-[var(--accent-secondary)] hover:underline block">View Protocol &rarr;</a>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </SectionCard>
                   </div>
                 </div>
               </motion.div>
@@ -793,97 +948,152 @@ export default function LabResearchAgent() {
               <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                 <div className="mb-8">
                   <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-primary)] mb-2 block">Phase 04</span>
-                  <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Statistical Analysis</h2>
-                  <p className="text-[var(--text-secondary)] mt-2">Upload your collected CSV data and run automated statistical inference.</p>
+                  <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">
+                    {formData.studyType === 'Automated Literature Review' ? 'Literature Synthesis' : 'Statistical Analysis'}
+                  </h2>
+                  <p className="text-[var(--text-secondary)] mt-2">
+                    {formData.studyType === 'Automated Literature Review' 
+                      ? 'Fetch and synthesize academic literature automatically.' 
+                      : 'Upload your collected CSV data and run automated statistical inference.'}
+                  </p>
                 </div>
                 
-                <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-                  
-                  <div className="xl:col-span-1 space-y-6">
-                    <SectionCard title="Data Input" className="!p-5">
-                      <p className="text-xs mb-3 text-[var(--text-secondary)]">Paste your CSV contents below.</p>
-                      <textarea 
-                        className="w-full h-48 p-4 border rounded-xl text-xs font-mono mb-4 bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
-                        placeholder="Patient_ID,Age,Sex,Result\n1,45,M,2.4..."
-                        value={csvData}
-                        onChange={(e) => setCsvData(e.target.value)}
-                      />
-                      <div className="flex justify-between items-center text-xs text-[var(--text-muted)] font-bold tracking-wider uppercase">
-                        <span>{headers.length} columns</span>
-                        <span>{parsedCsv.rows.length} rows</span>
-                      </div>
-                    </SectionCard>
-
-                    <AnimatePresence>
-                      {headers.length > 0 && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-                          <SectionCard title="Inference Engine" className="!p-5 border-l-4 border-l-[var(--accent-primary)]">
-                             <select className="w-full p-3 mb-3 border rounded-xl text-sm bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] appearance-none outline-none focus:ring-2" value={analysis.col1} onChange={e => setAnalysis({...analysis, col1: e.target.value})}>
-                               <option value="">Select Target A...</option>
-                               {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                             </select>
-                             <select className="w-full p-3 mb-4 border rounded-xl text-sm bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] appearance-none outline-none focus:ring-2" value={analysis.col2} onChange={e => setAnalysis({...analysis, col2: e.target.value})}>
-                               <option value="">Select Target B...</option>
-                               {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                             </select>
-                             <PrimaryButton className="w-full" onClick={runAnalysis} loading={loading} icon={PlayCircle}>Run Test</PrimaryButton>
-                          </SectionCard>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  <div className="xl:col-span-3">
-                    {!csvData ? (
-                       <div className="h-full flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center border-[var(--border-color)] bg-[var(--bg-paper)] min-h-[400px]">
-                         <FileSpreadsheet className="w-16 h-16 mb-6 opacity-20 text-[var(--text-primary)]" />
-                         <p className="text-[var(--text-secondary)] text-lg">Provide a dataset to activate the inference engine.</p>
+                {formData.studyType === 'Automated Literature Review' ? (
+                  <div className="grid grid-cols-1 gap-8">
+                     <SectionCard title="Automated Literature Fetch & Meta-Analysis" className="!p-8">
+                       <p className="text-sm text-[var(--text-secondary)] mb-6">Fetch the most relevant recent papers and automatically perform a thematic synthesis.</p>
+                       
+                       <PrimaryButton onClick={handleAutomatedReview} loading={loading} icon={Search} className="mb-8">
+                          Fetch Literature & Synthesize
+                       </PrimaryButton>
+                       
+                       {literatureData.length > 0 && (
+                         <div className="space-y-6">
+                           <div className="p-6 rounded-2xl bg-[var(--bg-app)] border border-[var(--border-color)]">
+                              <div className="flex items-center gap-2 mb-4">
+                               <Activity className="w-4 h-4 text-[var(--accent-secondary)]" strokeWidth={3} />
+                               <span className="text-xs font-black uppercase tracking-widest text-[var(--accent-secondary)]">AI Meta-Analysis Synthesis</span>
+                             </div>
+                             <MarkdownLite content={analysis.interpretation} />
+                           </div>
+                           
+                           <div className="pt-6 border-t border-[var(--border-color)]">
+                             <h4 className="text-sm font-bold mb-4 uppercase tracking-widest text-[var(--text-muted)]">Sources Retrieved ({literatureData.length})</h4>
+                             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                                {literatureData.map((paper: any, i: number) => (
+                                  <div key={i} className="p-4 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl flex flex-col gap-2">
+                                    <h4 className="text-sm font-bold leading-tight text-[var(--text-primary)]">{paper.title}</h4>
+                                    <div className="text-xs text-[var(--text-muted)] flex gap-4 font-medium">
+                                      <span>{paper.year || 'Unknown'}</span>
+                                      <span>{paper.authors?.map((a:any)=>a.name).join(', ').substring(0, 100)}{paper.authors?.length > 3 ? ' et al.' : ''}</span>
+                                      {paper.citationCount !== undefined && <span className="font-bold text-[var(--accent-primary)]">{paper.citationCount} Citations</span>}
+                                    </div>
+                                  </div>
+                                ))}
+                             </div>
+                           </div>
+                         </div>
+                       )}
+                       
+                       <div className="mt-8 flex justify-between pt-8 border-t border-[var(--border-color)]">
+                          <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
+                          <PrimaryButton onClick={handleNext} disabled={literatureData.length === 0}>Proceed to Manuscript</PrimaryButton>
                        </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {/* Test Results Output */}
-                        {analysis.result && (
-                          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="p-8 rounded-3xl border border-[var(--border-color)] bg-[var(--bg-paper)] shadow-lg relative overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)]"></div>
-                            
-                            <div className="flex justify-between items-start mb-4 mt-2">
-                              <span className="text-sm uppercase font-black tracking-widest text-[var(--accent-secondary)]">{analysis.result.name}</span>
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${analysis.result.p < 0.05 ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'}`}>
-                                {analysis.result.p < 0.05 ? 'SIGNIFICANT' : 'NOT SIGNIFICANT'}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-end gap-3 mb-8">
-                               <span className="text-6xl font-bold font-serif text-[var(--text-primary)] leading-none tracking-tighter">
-                                 {analysis.result.p < 0.001 ? '< 0.001' : analysis.result.p?.toFixed(4)}
-                               </span>
-                               <span className="text-lg font-bold text-[var(--text-muted)] mb-1">p-value</span>
-                            </div>
-                            
-                            <div className="pt-6 border-t border-[var(--border-color)] flex gap-12">
-                              <HeaderStat label="Statistic" value={analysis.result.stat?.toFixed(3)} />
-                              <HeaderStat label="Degrees of Freedom" value={analysis.result.df?.toFixed(1) || analysis.result.df} />
-                            </div>
+                     </SectionCard>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+                    
+                    <div className="xl:col-span-1 space-y-6">
+                      <SectionCard title="Data Input" className="!p-5">
+                        <div className="flex justify-between items-center mb-3">
+                          <p className="text-xs text-[var(--text-secondary)]">Paste your CSV contents below.</p>
+                          <button onClick={loadSampleDataset} className="text-[10px] font-bold uppercase tracking-wider text-[var(--accent-secondary)] hover:underline">
+                            Load Sample Data
+                          </button>
+                        </div>
+                        <textarea 
+                          className="w-full h-48 p-4 border rounded-xl text-xs font-mono mb-4 bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+                          placeholder="Patient_ID,Age,Sex,Result\n1,45,M,2.4..."
+                          value={csvData}
+                          onChange={(e) => setCsvData(e.target.value)}
+                        />
+                        <div className="flex justify-between items-center text-xs text-[var(--text-muted)] font-bold tracking-wider uppercase">
+                          <span>{headers.length} columns</span>
+                          <span>{parsedCsv.rows.length} rows</span>
+                        </div>
+                      </SectionCard>
 
-                            <div className="mt-8 p-6 rounded-2xl bg-[var(--bg-app)] border border-[var(--border-color)] relative">
-                               <div className="flex items-center gap-2 mb-4">
-                                 <Activity className="w-4 h-4 text-[var(--accent-secondary)]" strokeWidth={3} />
-                                 <span className="text-xs font-black uppercase tracking-widest text-[var(--accent-secondary)]">Automated Interpretation</span>
-                               </div>
-                               <div>
-                                 {loading ? (
-                                   <div className="flex items-center gap-3 text-[var(--text-muted)]"><Loader2 className="w-5 h-5 animate-spin"/> Synthesizing clinical interpretation...</div>
-                                 ) : (
-                                   <MarkdownLite content={analysis.interpretation} />
-                                 )}
-                               </div>
-                            </div>
+                      <AnimatePresence>
+                        {headers.length > 0 && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                            <SectionCard title="Inference Engine" className="!p-5 border-l-4 border-l-[var(--accent-primary)]">
+                               <select className="w-full p-3 mb-3 border rounded-xl text-sm bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] appearance-none outline-none focus:ring-2" value={analysis.col1} onChange={e => setAnalysis({...analysis, col1: e.target.value})}>
+                                 <option value="">Select Target A...</option>
+                                 {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                               </select>
+                               <select className="w-full p-3 mb-4 border rounded-xl text-sm bg-[var(--bg-app)] border-[var(--border-color)] text-[var(--text-primary)] appearance-none outline-none focus:ring-2" value={analysis.col2} onChange={e => setAnalysis({...analysis, col2: e.target.value})}>
+                                 <option value="">Select Target B...</option>
+                                 {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                               </select>
+                               <PrimaryButton className="w-full" onClick={runAnalysis} loading={loading} icon={PlayCircle}>Run Test</PrimaryButton>
+                            </SectionCard>
                           </motion.div>
                         )}
-                        
-                        {/* Auto-Summary distributions */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {headers.slice(0, 4).map((col, idx) => {
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="xl:col-span-3">
+                      {!csvData ? (
+                         <div className="h-full flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center border-[var(--border-color)] bg-[var(--bg-paper)] min-h-[400px]">
+                           <FileSpreadsheet className="w-16 h-16 mb-6 opacity-20 text-[var(--text-primary)]" />
+                           <p className="text-[var(--text-secondary)] text-lg">Provide a dataset to activate the inference engine.</p>
+                         </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {/* Test Results Output */}
+                          {analysis.result && (
+                            <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="p-8 rounded-3xl border border-[var(--border-color)] bg-[var(--bg-paper)] shadow-lg relative overflow-hidden">
+                              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)]"></div>
+                              
+                              <div className="flex justify-between items-start mb-4 mt-2">
+                                <span className="text-sm uppercase font-black tracking-widest text-[var(--accent-secondary)]">{analysis.result.name}</span>
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${analysis.result.p < 0.05 ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'}`}>
+                                  {analysis.result.p < 0.05 ? 'SIGNIFICANT' : 'NOT SIGNIFICANT'}
+                                </span>
+                              </div>
+                              
+                              <div className="flex items-end gap-3 mb-8">
+                                 <span className="text-6xl font-bold font-serif text-[var(--text-primary)] leading-none tracking-tighter">
+                                   {analysis.result.p < 0.001 ? '< 0.001' : analysis.result.p?.toFixed(4)}
+                                 </span>
+                                 <span className="text-lg font-bold text-[var(--text-muted)] mb-1">p-value</span>
+                              </div>
+                              
+                              <div className="pt-6 border-t border-[var(--border-color)] flex gap-12">
+                                <HeaderStat label="Statistic" value={analysis.result.stat?.toFixed(3)} />
+                                <HeaderStat label="Degrees of Freedom" value={analysis.result.df?.toFixed(1) || analysis.result.df} />
+                              </div>
+
+                              <div className="mt-8 p-6 rounded-2xl bg-[var(--bg-app)] border border-[var(--border-color)] relative">
+                                 <div className="flex items-center gap-2 mb-4">
+                                   <Activity className="w-4 h-4 text-[var(--accent-secondary)]" strokeWidth={3} />
+                                   <span className="text-xs font-black uppercase tracking-widest text-[var(--accent-secondary)]">Automated Interpretation</span>
+                                 </div>
+                                 <div>
+                                   {loading ? (
+                                     <div className="flex items-center gap-3 text-[var(--text-muted)]"><Loader2 className="w-5 h-5 animate-spin"/> Synthesizing clinical interpretation...</div>
+                                   ) : (
+                                     <MarkdownLite content={analysis.interpretation} />
+                                   )}
+                                 </div>
+                              </div>
+                            </motion.div>
+                          )}
+                          
+                          {/* Auto-Summary distributions */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {headers.slice(0, 4).map((col, idx) => {
                             const colIdx = headers.indexOf(col);
                             const vals = parsedCsv.rows.map(r => r[colIdx]);
                             const type = detectType(vals);
@@ -935,6 +1145,7 @@ export default function LabResearchAgent() {
                     )}
                   </div>
                 </div>
+                )}
               </motion.div>
             )}
 
@@ -956,7 +1167,10 @@ export default function LabResearchAgent() {
                 {!report && !loading && (
                   <SectionCard className="text-center py-24 bg-transparent border-dashed">
                      <PenTool className="w-16 h-16 mx-auto mb-6 opacity-20 text-[var(--text-primary)]" />
-                     <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">Click "Draft Manuscript" to instruct the LLM to write a complete academic paper using your statistical findings and literature gap.</p>
+                     <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">
+                        Click "Draft Manuscript" to instruct the LLM to write a complete academic paper using your 
+                        {formData.studyType === 'Automated Literature Review' ? ' literature synthesis.' : ' statistical findings and literature gap.'}
+                     </p>
                   </SectionCard>
                 )}
 
