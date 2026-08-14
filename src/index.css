@@ -14,9 +14,31 @@
     --text-primary: #0F172A;
     --text-secondary: #475569;
     --text-muted: #94A3B8;
+    
     --accent-primary: #0F766E; /* Teal 700 */
     --accent-primary-hover: #0D9488; /* Teal 600 */
     --accent-primary-light: #CCFBF1; /* Teal 50 */
+    
+    --accent-secondary: #4F46E5; /* Indigo 600 */
+    --accent-secondary-hover: #4338CA; /* Indigo 700 */
+    --accent-secondary-light: #E0E7FF; /* Indigo 100 */
+    
+    --accent-warm: #F59E0B; /* Amber 500 */
+    --accent-warm-hover: #D97706; /* Amber 600 */
+    --accent-warm-light: #FEF3C7; /* Amber 100 */
+
+    --status-success: #10B981; /* Emerald 500 */
+    --status-warning: #F59E0B; /* Amber 500 */
+    --status-error: #F43F5E; /* Rose 500 */
+    --status-info: #3B82F6; /* Blue 500 */
+    
+    --cat-1: #0F766E; /* Teal */
+    --cat-2: #4F46E5; /* Indigo */
+    --cat-3: #F59E0B; /* Amber */
+    --cat-4: #F43F5E; /* Rose */
+    --cat-5: #3B82F6; /* Blue */
+    --cat-6: #10B981; /* Emerald */
+
     --sidebar-bg: #0B1120;
     --sidebar-border: #1E293B;
     --sidebar-text: #F8FAFC;
@@ -33,9 +55,31 @@
     --text-primary: #F8FAFC;
     --text-secondary: #94A3B8;
     --text-muted: #475569;
+    
     --accent-primary: #14B8A6; /* Teal 500 */
     --accent-primary-hover: #2DD4BF; /* Teal 400 */
     --accent-primary-light: #042F2E; /* Teal 900 */
+    
+    --accent-secondary: #818CF8; /* Indigo 400 */
+    --accent-secondary-hover: #6366F1; /* Indigo 500 */
+    --accent-secondary-light: #312E81; /* Indigo 900 */
+    
+    --accent-warm: #FBBF24; /* Amber 400 */
+    --accent-warm-hover: #F59E0B; /* Amber 500 */
+    --accent-warm-light: #78350F; /* Amber 900 */
+
+    --status-success: #34D399; /* Emerald 400 */
+    --status-warning: #FBBF24; /* Amber 400 */
+    --status-error: #FB7185; /* Rose 400 */
+    --status-info: #60A5FA; /* Blue 400 */
+    
+    --cat-1: #14B8A6; /* Teal */
+    --cat-2: #818CF8; /* Indigo */
+    --cat-3: #FBBF24; /* Amber */
+    --cat-4: #FB7185; /* Rose */
+    --cat-5: #60A5FA; /* Blue */
+    --cat-6: #34D399; /* Emerald */
+
     --sidebar-bg: #020617;
     --sidebar-border: #0F172A;
     --sidebar-text: #F8FAFC;

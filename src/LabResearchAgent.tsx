@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Beaker, Search, FileSpreadsheet, BarChart2, PenTool, CheckCircle, 
   Loader2, ArrowRight, Download, AlertCircle, PlayCircle,
-  Trash2, FolderOpen, Plus, X, Moon, Sun, Activity, BookOpen, FileText, Database, Microscope, Clipboard
+  Trash2, FolderOpen, Plus, X, Moon, Sun, Activity, BookOpen, FileText, Database, Microscope, Clipboard, AlertTriangle, Upload
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
+import Papa from 'papaparse';
+import jStat from 'jstat';
 
 // API Helper
 async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean, highThinking?: boolean } = {}) {
@@ -21,12 +23,12 @@ async function callGemini(prompt: string, opts: { system?: string, webSearch?: b
 
 // Stats Math Helpers
 const parseCSV = (csv: string) => {
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return { headers: [], rows: [] };
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-  const rows = lines.slice(1).filter(l => l.trim()).map(line => {
-    return line.split(',').map(val => {
-      const trimmed = val.trim().replace(/^"|"$/g, '');
+  const result = Papa.parse(csv.trim(), { skipEmptyLines: true });
+  if (result.data.length < 2) return { headers: [], rows: [] };
+  const headers = (result.data[0] as string[]).map(h => h.trim());
+  const rows = result.data.slice(1).map((row: any) => {
+    return row.map((val: string) => {
+      const trimmed = val.trim();
       const num = Number(trimmed);
       return isNaN(num) || trimmed === '' ? trimmed : num;
     });
@@ -63,19 +65,9 @@ const describeCategorical = (values: any[]) => {
   })).sort((a, b) => b.count - a.count);
 };
 
-const normalCDF = (x: number) => {
-  const sign = x >= 0 ? 1 : -1;
-  x = Math.abs(x) / Math.sqrt(2);
-  const t = 1.0 / (1.0 + 0.3275911 * x);
-  const y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return 0.5 * (1.0 + sign * y);
-};
-
 const chiSquarePValue = (chiSq: number, df: number) => {
   if (df <= 0) return 1;
-  const x = Math.pow(chiSq / df, 1/3) - (1 - 2/(9*df));
-  const z = x / Math.sqrt(2/(9*df));
-  return 1 - normalCDF(z);
+  return 1 - jStat.chisquare.cdf(chiSq, df);
 };
 
 const chiSquare = (cat1: any[], cat2: any[]) => {
@@ -137,7 +129,7 @@ const welchTTest = (numeric: number[], categorical: any[]) => {
   const dfDen = Math.pow(v1/d1.n, 2)/(d1.n-1) + Math.pow(v2/d2.n, 2)/(d2.n-1);
   const df = dfNum / dfDen;
   
-  const p = 2 * (1 - normalCDF(Math.abs(t)));
+  const p = 2 * (1 - jStat.studentt.cdf(Math.abs(t), df));
   
   return { stat: t, p, df, valid: true, name: "Welch's T-Test", g1: { name: keys[0], ...d1 }, g2: { name: keys[1], ...d2 } };
 };
@@ -284,6 +276,42 @@ export default function LabResearchAgent() {
       }
       return next;
     });
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const exportProject = () => {
+    const projectData = {
+      id: projectId,
+      updatedAt: Date.now(),
+      currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report
+    };
+    const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `project_${projectId}.json`;
+    a.click();
+  };
+
+  const importProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target?.result as string);
+        if (imported.id) {
+          loadProject(imported);
+        } else {
+          setError("Invalid project file format.");
+        }
+      } catch (err) {
+        setError("Failed to parse project file.");
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // Load from storage
@@ -816,11 +844,11 @@ export default function LabResearchAgent() {
                         {/* Test Results Output */}
                         {analysis.result && (
                           <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="p-8 rounded-3xl border border-[var(--border-color)] bg-[var(--bg-paper)] shadow-lg relative overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[var(--accent-primary)] to-indigo-500"></div>
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)]"></div>
                             
                             <div className="flex justify-between items-start mb-4 mt-2">
-                              <span className="text-sm uppercase font-black tracking-widest text-[var(--accent-primary)]">{analysis.result.name}</span>
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${analysis.result.p < 0.05 ? 'bg-[var(--accent-primary)]' : 'bg-[var(--text-muted)]'}`}>
+                              <span className="text-sm uppercase font-black tracking-widest text-[var(--accent-secondary)]">{analysis.result.name}</span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${analysis.result.p < 0.05 ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'}`}>
                                 {analysis.result.p < 0.05 ? 'SIGNIFICANT' : 'NOT SIGNIFICANT'}
                               </span>
                             </div>
@@ -839,8 +867,8 @@ export default function LabResearchAgent() {
 
                             <div className="mt-8 p-6 rounded-2xl bg-[var(--bg-app)] border border-[var(--border-color)] relative">
                                <div className="flex items-center gap-2 mb-4">
-                                 <Activity className="w-4 h-4 text-[var(--accent-primary)]" strokeWidth={3} />
-                                 <span className="text-xs font-black uppercase tracking-widest text-[var(--accent-primary)]">Automated Interpretation</span>
+                                 <Activity className="w-4 h-4 text-[var(--accent-secondary)]" strokeWidth={3} />
+                                 <span className="text-xs font-black uppercase tracking-widest text-[var(--accent-secondary)]">Automated Interpretation</span>
                                </div>
                                <div>
                                  {loading ? (
@@ -859,6 +887,7 @@ export default function LabResearchAgent() {
                             const colIdx = headers.indexOf(col);
                             const vals = parsedCsv.rows.map(r => r[colIdx]);
                             const type = detectType(vals);
+                            const COLORS = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)', 'var(--cat-6)'];
                             
                             if (type === 'numeric') {
                               const stats = describeNumeric(vals);
@@ -886,7 +915,7 @@ export default function LabResearchAgent() {
                                           <Tooltip cursor={{fill: 'var(--bg-paper-hover)'}} contentStyle={{ borderRadius: '12px', border: `1px solid var(--border-color)`, backgroundColor: 'var(--bg-paper)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 'bold' }} />
                                           <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                                             {chartData.map((entry, index) => (
-                                              <Cell key={`cell-${index}`} fill="var(--accent-primary)" opacity={1 - (index * 0.15)} />
+                                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                             ))}
                                           </Bar>
                                         </BarChart>
@@ -995,6 +1024,15 @@ export default function LabResearchAgent() {
               </div>
               
               <div className="p-6 flex-1 overflow-y-auto flex flex-col gap-4">
+                
+                <div className="bg-[var(--status-warning)]/10 border border-[var(--status-warning)]/30 rounded-xl p-4 flex gap-3 items-start">
+                  <AlertTriangle className="w-5 h-5 text-[var(--status-warning)] shrink-0 mt-0.5" />
+                  <p className="text-xs text-[var(--status-warning)] leading-relaxed font-medium">
+                    <strong className="block mb-1">Local Storage Only</strong>
+                    Your study data is currently saved only in this browser. Export to JSON to back up your work or move it to another device.
+                  </p>
+                </div>
+
                 <button 
                   onClick={startNewProject}
                   className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed border-[var(--accent-primary)] text-[var(--accent-primary)] hover:bg-[var(--accent-primary-light)] dark:hover:bg-[var(--accent-primary)]/10 transition-colors shadow-sm"
@@ -1003,6 +1041,16 @@ export default function LabResearchAgent() {
                   <span className="font-bold uppercase tracking-wider text-sm">Initialize New Study</span>
                 </button>
                 
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={exportProject} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--bg-paper-hover)] text-[var(--text-primary)] border border-[var(--border-color)] hover:bg-[var(--bg-app)] transition-colors text-xs font-bold uppercase tracking-wider">
+                    <Download className="w-4 h-4" /> Export JSON
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--bg-paper-hover)] text-[var(--text-primary)] border border-[var(--border-color)] hover:bg-[var(--bg-app)] transition-colors text-xs font-bold uppercase tracking-wider">
+                    <Upload className="w-4 h-4" /> Import JSON
+                  </button>
+                  <input type="file" accept=".json" ref={fileInputRef} onChange={importProject} className="hidden" />
+                </div>
+
                 <div className="mt-4 space-y-3">
                   {projectsList.sort((a,b) => b.updatedAt - a.updatedAt).map(proj => (
                     <div 
