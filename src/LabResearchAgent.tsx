@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Beaker, Search, FileSpreadsheet, BarChart2, PenTool, CheckCircle, 
   Loader2, ArrowRight, Download, AlertCircle, PlayCircle,
-  Trash2, FolderOpen, Plus, X, Moon, Sun, Activity, BookOpen, FileText, Database, Microscope
+  Trash2, FolderOpen, Plus, X, Moon, Sun, Activity, BookOpen, FileText, Database, Microscope, Clipboard
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
