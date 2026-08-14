@@ -8,11 +8,11 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContaine
 import { motion, AnimatePresence } from 'motion/react';
 
 // API Helper
-async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean } = {}) {
+async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean, highThinking?: boolean } = {}) {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, system: opts.system })
+    body: JSON.stringify({ prompt, system: opts.system, webSearch: opts.webSearch, highThinking: opts.highThinking })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to fetch');
@@ -376,7 +376,7 @@ export default function LabResearchAgent() {
       [CSV_TEMPLATE]
       Then provide a comma-separated list of column names for the variables, e.g., Patient_ID,Age,Sex,Test_Result_1,Test_Result_2`;
       
-      const res = await callGemini(prompt);
+      const res = await callGemini(prompt, { highThinking: true });
       
       let text = res;
       let template = '';
@@ -442,7 +442,7 @@ export default function LabResearchAgent() {
         throw new Error("Please select one categorical and one numeric column (T-Test) or two categorical columns (Chi-Square).");
       }
       
-      const interpretation = await callGemini(aiPrompt);
+      const interpretation = await callGemini(aiPrompt, { highThinking: true });
       setAnalysis({ ...analysis, result: statResult, interpretation });
       
     } catch (err: any) {
@@ -476,7 +476,7 @@ export default function LabResearchAgent() {
           Write the **References** section of the manuscript. Provide a numbered list of real, peer-reviewed academic references (e.g., foundational papers, textbook chapters) that relate to this topic and match the citations you just generated. Do not invent fake DOIs or authors; rely strictly on actual scientific literature from your knowledge base. Do not add titles or markdown headings for the section name itself.`;
         }
         
-        const res = await callGemini(prompt);
+        const res = await callGemini(prompt, { highThinking: true });
         manuscript[part.toLowerCase()] = res;
       }
       

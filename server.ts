@@ -11,16 +11,55 @@ async function startServer() {
 
   app.post("/api/generate", async (req, res) => {
     try {
-      const { prompt, system } = req.body;
-      const key = process.env.GROQ_API_KEY;
+      const { prompt, system, webSearch, highThinking } = req.body;
+      const geminiKey = process.env.GEMINI_API_KEY;
+      const groqKey = process.env.GROQ_API_KEY;
       
-      console.log("Processing request with GROQ_API_KEY ending in:", key ? key.slice(-4) : "NONE");
-      
-      if (!key) {
-        throw new Error("GROQ_API_KEY environment variable is required. Please set it in the AI Studio settings (Secrets panel).");
+      // Try Gemini first if requested and key exists
+      if (geminiKey && (webSearch || highThinking)) {
+        try {
+          const { GoogleGenAI, ThinkingLevel } = await import("@google/genai");
+          const ai = new GoogleGenAI({ 
+            apiKey: geminiKey,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          });
+          
+          let model = "gemini-3.7-flash";
+          let config: any = {};
+          
+          if (system) {
+            config.systemInstruction = system;
+          }
+          
+          if (webSearch) {
+            model = "gemini-3.5-flash";
+            config.tools = [{ googleSearch: {} }];
+          } else if (highThinking) {
+            model = "gemini-3.1-pro-preview";
+            config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
+          }
+          
+          console.log(`Trying Gemini API (${model})...`);
+          const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: config
+          });
+          
+          return res.json({ text: response.text });
+        } catch (geminiError: any) {
+          console.warn("Gemini API failed or quota exceeded, falling back to Groq...", geminiError.message);
+          // Let it fall through to Groq
+        }
       }
       
-      const groq = new Groq({ apiKey: key });
+      console.log("Processing request with GROQ_API_KEY ending in:", groqKey ? groqKey.slice(-4) : "NONE");
+      
+      if (!groqKey) {
+        throw new Error("GROQ_API_KEY environment variable is required if Gemini fails or is not configured.");
+      }
+      
+      const groq = new Groq({ apiKey: groqKey });
       const messages: any[] = [];
       
       if (system) {
@@ -35,7 +74,7 @@ async function startServer() {
       
       res.json({ text: response.choices[0]?.message?.content || "" });
     } catch (error: any) {
-      console.error("Groq API Error:", error);
+      console.error("API Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
