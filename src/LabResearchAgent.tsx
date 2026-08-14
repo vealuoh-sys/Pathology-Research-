@@ -480,8 +480,34 @@ export default function LabResearchAgent() {
     setError('');
     setLoading(true);
     try {
-      const prompt = `Act as an expert medical laboratory scientist. Based on recent literature, identify 3 distinct, highly actionable research gaps for a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on ${formData.topic} in ${formData.population} populations. 
-      Format the output EXACTLY as a JSON array of strings. Do not include markdown formatting for the JSON, just output the raw bracketed array: ["Gap 1...", "Gap 2...", "Gap 3..."]`;
+      let pubMedContext = "";
+      try {
+        setLoadingPubMed(true);
+        const searchRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(formData.topic)}&retmode=json&retmax=5`);
+        const searchData = await searchRes.json();
+        if (searchData.esearchresult && searchData.esearchresult.idlist.length > 0) {
+          const ids = searchData.esearchresult.idlist.join(',');
+          const summaryRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
+          const summaryData = await summaryRes.json();
+          const docs = searchData.esearchresult.idlist.map((id: string) => summaryData.result[id]);
+          setPubMedResults(docs);
+          
+          pubMedContext = docs.map((d: any) => `- ${d.title} (${d.pubdate})`).join('\n');
+        }
+      } catch (e) {
+        console.warn("Could not fetch PubMed for context", e);
+      } finally {
+        setLoadingPubMed(false);
+      }
+
+      const prompt = `Act as an expert medical laboratory scientist. 
+      The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}" populations.
+      
+      Here are the titles of some of the most recent publications from PubMed on this topic:
+      ${pubMedContext || 'No recent PubMed data could be fetched. Rely on your general knowledge.'}
+      
+      Analyze these recent publications to determine what has already been done, and identify 3 distinct, highly specific, and clinically actionable research gaps that are currently missing from this specific body of literature.
+      Format the output EXACTLY as a JSON array of 3 strings. Do not include markdown formatting for the JSON, just output the raw bracketed array: ["Gap 1...", "Gap 2...", "Gap 3..."]`;
       
       const res = await callGemini(prompt, { webSearch: true });
       const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -503,10 +529,32 @@ export default function LabResearchAgent() {
     setError('');
     setLoading(true);
     try {
+      let trialsContext = "";
+      try {
+        setLoadingTrials(true);
+        const res = await fetch(`https://clinicaltrials.gov/api/v2/studies?query.cond=${encodeURIComponent(formData.topic)}&pageSize=3`);
+        const data = await res.json();
+        if (data.studies && data.studies.length > 0) {
+          setClinicalTrials(data.studies);
+          trialsContext = data.studies.map((t: any) => {
+            const p = t.protocolSection;
+            return `- ${p?.identificationModule?.briefTitle || 'Trial'} (Status: ${p?.statusModule?.overallStatus || 'Unknown'})`;
+          }).join('\n');
+        }
+      } catch (e) {
+        console.warn("Could not fetch ClinicalTrials for context", e);
+      } finally {
+        setLoadingTrials(false);
+      }
+
       const prompt = `Write a brief study protocol for this research gap: "${selectedGap}". 
+      
+      Here are some real-world clinical trials currently registered for this topic to use as a baseline for how others have structured their studies:
+      ${trialsContext || 'No recent clinical trials found. Use standard protocol design.'}
+
       Include:
       1. Primary Objective
-      2. Inclusion/Exclusion Criteria
+      2. Inclusion/Exclusion Criteria (inspired by how real clinical trials structure them)
       3. Minimum Sample Size estimation approach (just the logic, no complex math)
       4. Variables to collect.
       
