@@ -24,11 +24,11 @@ import { Card, Metric, Text, ProgressBar, Badge, BarList, List, ListItem, Tracke
 
 
 // API Helper
-async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean, highThinking?: boolean } = {}) {
+async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean, highThinking?: boolean, schemaId?: string } = {}) {
   const res = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, system: opts.system, webSearch: opts.webSearch, highThinking: opts.highThinking })
+    body: JSON.stringify({ prompt, system: opts.system, webSearch: opts.webSearch, highThinking: opts.highThinking, schemaId: opts.schemaId })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to fetch');
@@ -579,9 +579,8 @@ export default function LabResearchAgent() {
       ]
       Do not include markdown formatting for the JSON.`;
       
-      const res = await callGemini(prompt, { webSearch: false, highThinking: false });
-      const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanRes);
+      const res = await callGemini(prompt, { webSearch: false, highThinking: false, schemaId: 'screening-funnel' });
+      const parsed = JSON.parse(res);
       
       const screenedDocs = docs.map(d => {
         const screenResult = parsed.find((p: any) => p.uid === String(d.uid));
@@ -642,9 +641,8 @@ export default function LabResearchAgent() {
         ]
       }`;
       
-      const res = await callGemini(prompt, { webSearch: false, highThinking: true });
-      const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanRes);
+      const res = await callGemini(prompt, { webSearch: false, highThinking: true, schemaId: 'gap-synthesis' });
+      const parsed = JSON.parse(res);
       
       if (parsed.gaps && Array.isArray(parsed.gaps)) {
         setGaps(parsed.gaps);
@@ -844,9 +842,8 @@ export default function LabResearchAgent() {
       ]
       Return an empty array [] if no issues are found. Do not include markdown formatting for the JSON.`;
       
-      const res = await callGemini(prompt, { highThinking: true });
-      const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanRes);
+      const res = await callGemini(prompt, { highThinking: true, schemaId: 'refinement-pass' });
+      const parsed = JSON.parse(res);
       let flags = Array.isArray(parsed) ? parsed : [];
       
       // Additional DOI CrossRef Verification

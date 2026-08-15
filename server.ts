@@ -1,3 +1,8 @@
+import { z } from "zod";
+import { generateText, generateObject } from "ai";
+import { google } from "@ai-sdk/google";
+import { groq as groqProvider } from "@ai-sdk/groq";
+import { GoogleGenAI } from "@google/genai";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -11,72 +16,105 @@ async function startServer() {
 
   app.post("/api/generate", async (req, res) => {
     try {
-      const { prompt, system, webSearch, highThinking } = req.body;
+      const { prompt, system, webSearch, highThinking, schemaId } = req.body;
       const geminiKey = process.env.GEMINI_API_KEY;
       const groqKey = process.env.GROQ_API_KEY;
       
-      // Try Gemini first if requested and key exists
-      if (geminiKey && (webSearch || highThinking)) {
-        try {
-          const { GoogleGenAI, ThinkingLevel } = await import("@google/genai");
-          const ai = new GoogleGenAI({ 
-            apiKey: geminiKey,
-            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-          });
-          
-          let model = "gemini-3.7-flash";
-          let config: any = {};
-          
-          if (system) {
-            config.systemInstruction = system;
-          }
-          
-          if (webSearch) {
-            model = "gemini-3.5-flash";
-            config.tools = [{ googleSearch: {} }];
-          } else if (highThinking) {
-            model = "gemini-3.1-pro-preview";
-            config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
-          }
-          
-          console.log(`Trying Gemini API (${model})...`);
-          const response = await ai.models.generateContent({
-            model: model,
-            contents: prompt,
-            config: config
-          });
-          
-          return res.json({ text: response.text });
-        } catch (geminiError: any) {
-          // Log gracefully without using "Error" to prevent platform false-positives
-          console.log(`[Fallback] Gemini API quota reached. Routing request to Groq...`);
-          // Let it fall through to Groq
+      let providerModel;
+      
+      // Select Provider and Model
+      if (geminiKey && (webSearch || highThinking || !groqKey)) {
+        let modelName = "gemini-2.5-flash"; // Fixed to valid models
+        
+        if (webSearch) {
+          modelName = "gemini-2.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
+        } else if (highThinking) {
+          modelName = "gemini-2.5-pro"; // Use 2.5 pro for "high thinking"
         }
+        
+        // Validate against SDK's supported models
+        const googleGenAI = new GoogleGenAI({ apiKey: geminiKey });
+        const models = await googleGenAI.models.list();
+        const supportedModels = [];
+        for await (const m of models) {
+          supportedModels.push(m.name.replace('models/', ''));
+        }
+        
+        if (!supportedModels.includes(modelName)) {
+          throw new Error(`Invalid model name requested: ${modelName}. Supported models include: ${supportedModels.slice(0, 5).join(', ')}...`);
+        }
+        
+        console.log(`Trying Gemini API (${modelName})...`);
+        providerModel = google(modelName);
+      } else {
+        if (!groqKey) {
+          throw new Error("GROQ_API_KEY environment variable is required if Gemini is not configured.");
+        }
+        console.log("Processing request with GROQ_API_KEY ending in:", groqKey.slice(-4));
+        providerModel = groqProvider("llama-3.3-70b-versatile");
       }
       
-      console.log("Processing request with GROQ_API_KEY ending in:", groqKey ? groqKey.slice(-4) : "NONE");
+      let responseText = "";
       
-      if (!groqKey) {
-        throw new Error("GROQ_API_KEY environment variable is required if Gemini fails or is not configured.");
+      // Use generateObject for specific schemas to enforce Zod constraints
+      if (schemaId === 'gap-synthesis') {
+        const { object } = await generateObject({
+          model: providerModel,
+          system,
+          prompt,
+          schema: z.object({
+            saturation: z.string(),
+            justification: z.string(),
+            gaps: z.array(z.object({
+              text: z.string(),
+              provenance: z.array(z.object({
+                uid: z.string(),
+                quote: z.string()
+              }))
+            }))
+          })
+        });
+        responseText = JSON.stringify(object);
+      } else if (schemaId === 'screening-funnel') {
+        const { object } = await generateObject({
+          model: providerModel,
+          system,
+          prompt,
+          schema: z.array(z.object({
+            uid: z.string(),
+            included: z.boolean(),
+            reason: z.string()
+          }))
+        });
+        responseText = JSON.stringify(object);
+      } else if (schemaId === 'refinement-pass') {
+        const { object } = await generateObject({
+          model: providerModel,
+          system,
+          prompt,
+          schema: z.array(z.object({
+            issue: z.string(),
+            quote: z.string(),
+            type: z.enum(['citation', 'methodology', 'criteria', 'limitation', 'bias', 'other']),
+            severity: z.enum(['high', 'medium', 'low']),
+            section: z.string()
+          }))
+        });
+        responseText = JSON.stringify(object);
+      } else {
+        // Standard text generation
+        const { text } = await generateText({
+          model: providerModel,
+          system,
+          prompt
+        });
+        responseText = text;
       }
       
-      const groq = new Groq({ apiKey: groqKey });
-      const messages: any[] = [];
-      
-      if (system) {
-        messages.push({ role: "system", content: system });
-      }
-      messages.push({ role: "user", content: prompt });
-
-      const response = await groq.chat.completions.create({
-        messages: messages,
-        model: "llama-3.3-70b-versatile",
-      });
-      
-      res.json({ text: response.choices[0]?.message?.content || "" });
+      return res.json({ text: responseText });
     } catch (error: any) {
-      console.error("API Error:", error);
-      res.status(500).json({ error: error.message });
+      console.error("API Error (Properly surfaced):", error.message || error);
+      res.status(500).json({ error: error.message || "Provider call failed" });
     }
   });
 
