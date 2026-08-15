@@ -603,14 +603,15 @@ export default function LabResearchAgent() {
       Here is the fetched, included evidence pool:
       ${litContext}
       
-      CRITICAL RULE: You must never state a finding, statistic, or pooled result unless it is directly present in the provided abstract text. If the evidence pool is insufficient to support a claim, you must state 'Insufficient evidence in fetched literature' rather than fabricating a plausible result.
+      CRITICAL RULE 1: You must never state a finding, statistic, or pooled result unless it is directly present in the provided abstract text.
+      CRITICAL RULE 2: The gaps you identify MUST NOT be generated from your general knowledge. They MUST be derived STRICTLY from the provided abstracts. You can only identify a gap if the authors of the provided papers explicitly state a limitation, mention a direction for future research, or if you identify a direct conflict between two provided papers. If the provided literature does not mention a gap, do NOT invent one.
       
       First, classify the topic's current state of "Topic Saturation" based ONLY on the fetched literature. Categories: Saturated, Superficially Crowded, Strategically Occupied, Open. Provide a 1-2 sentence justification.
       
-      Second, identify 3 distinct, highly specific, and clinically actionable research gaps that are currently missing from this specific body of literature.
-      CRITICAL METHODOLOGY: You MUST organize your gap analysis by overarching theme (e.g., "diagnostic methods", "patient population factors", "reported limitations") and perform a cross-study comparison. Compare and contrast across studies within each theme, noting where studies agree or conflict. Do not simply list a study-by-study summary.
+      Second, identify up to 3 distinct, highly specific, and clinically actionable research gaps derived DIRECTLY from the literature pool above.
+      CRITICAL METHODOLOGY: You MUST organize your gap analysis by overarching theme (e.g., "diagnostic methods", "patient population factors", "reported limitations") and perform a cross-study comparison. Compare and contrast across studies within each theme, noting where studies agree or conflict.
       
-      For each gap, you MUST provide explicit provenance tracking: cite the UID of the paper(s) that support this gap analysis, and extract a brief verbatim quote from their abstract that justifies it.
+      For each gap, you MUST provide explicit provenance tracking: cite the UID of the paper(s) that support this gap, and extract a brief verbatim quote from their abstract that explicitly points to this limitation or future need.
       
       Format EXACTLY as a JSON object:
       {
@@ -620,7 +621,7 @@ export default function LabResearchAgent() {
           {
             "text": "Gap description and thematic cross-study synthesis...",
             "provenance": [
-              { "uid": "UID here", "quote": "Verbatim quote from abstract supporting this..." }
+              { "uid": "UID here", "quote": "Verbatim quote from abstract supporting this limitation/gap..." }
             ]
           }
         ]
