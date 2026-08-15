@@ -262,7 +262,9 @@ export default function LabResearchAgent() {
     methodologyDocumented: false,
     criteriaStated: false,
     exclusionsDocumented: false,
-    limitationsAcknowledged: false
+    limitationsAcknowledged: false,
+    stardAdherence: false,
+    biasAcknowledged: false
   });
 
   const [literatureData, setLiteratureData] = useState<any[]>([]);
@@ -308,7 +310,9 @@ export default function LabResearchAgent() {
       methodologyDocumented: false,
       criteriaStated: false,
       exclusionsDocumented: false,
-      limitationsAcknowledged: false
+      limitationsAcknowledged: false,
+      stardAdherence: false,
+      biasAcknowledged: false
     });
     setCurrentStep(1);
     setShowHistory(false);
@@ -666,7 +670,7 @@ export default function LabResearchAgent() {
         setLoadingTrials(false);
       }
 
-      const prompt = `Write a PRISMA-aligned study protocol for this research gap: "${selectedGap.text || selectedGap}". 
+      const prompt = `Write a study protocol for this research gap: "${selectedGap.text || selectedGap}". 
       The study type is "${formData.studyType}".
       
       Here are some real-world clinical trials currently registered for this topic to use as a baseline for how others have structured their studies:
@@ -674,12 +678,22 @@ export default function LabResearchAgent() {
 
       CRITICAL RULE: You must not fabricate trial results, prior findings, or statistics. Base all design on standard scientific methodology and the provided context.
 
-      Include PRISMA-aligned structure (especially for Diagnostic Accuracy studies):
+      FIRST, explicitly define the Estimand in a distinct block at the top formatted as:
+      ### Estimand Definition
+      - Target Population: 
+      - Index Test/Exposure: 
+      - Comparator/Reference Standard: 
+      - Outcome(s): 
+      - Causal/Diagnostic Contrast: 
+
+      THEN, draft the study design. Since this is a point-of-care/lab diagnostic accuracy study, default to STARD (Standards for Reporting of Diagnostic Accuracy Studies) for the protocol design structure, while acknowledging PRISMA for the literature review portion.
+      
+      Include STARD-aligned structure:
       1. Primary Objective
       2. Explicit Inclusion/Exclusion Criteria (inspired by how real clinical trials structure them)
-      3. Minimum Sample Size estimation approach (just the logic, no complex math). If this is a Diagnostic Accuracy study, explicitly define assumptions for disease prevalence, target sensitivity, target specificity, and precision.
+      3. Minimum Sample Size estimation approach (just the logic, no complex math). Define assumptions for disease prevalence, target sensitivity, target specificity, and precision.
       4. Variables to collect.
-      5. Search Strategy Documentation & PRISMA Flow (note that we screened ${evidencePool.length} papers, included ${evidencePool.filter(d=>d.included).length}).
+      5. Search Strategy Documentation (note that we screened ${evidencePool.length} papers, included ${evidencePool.filter(d=>d.included).length}).
       
       AT THE VERY END, on a new line, write exactly:
       [CSV_TEMPLATE]
@@ -728,12 +742,19 @@ export default function LabResearchAgent() {
       let statResult: any = null;
       let aiPrompt = '';
       
+      const commonInferenceInstructions = `
+      CRITICAL INFERENCE REQUIREMENTS:
+      1. Define the Analysis Population: Explicitly name the analysis population and briefly note how it might differ from anyone excluded.
+      2. Confidence Intervals: You MUST discuss confidence intervals alongside p-values (do not report p-values alone). If exact CIs aren't provided in the prompt, estimate their implications or explicitly state they must be calculated for final reporting.
+      3. Bias & Confounding: Identify at least one plausible source of bias or confounding (e.g., using DAG-based logic) relevant to this specific comparison.`;
+
       if (t1 === 'categorical' && t2 === 'categorical') {
         statResult = chiSquare(vals1, vals2);
         if (!statResult.valid) throw new Error(statResult.msg || "Invalid data for Chi-Square");
         aiPrompt = `I ran a Chi-Square test to compare ${analysis.col1} and ${analysis.col2}. The test statistic was ${statResult.stat.toFixed(2)}, degrees of freedom: ${statResult.df}, p-value: ${statResult.p.toFixed(4)}. 
         ${formData.studyType === 'Diagnostic Accuracy' ? 'Since this is a Diagnostic Accuracy study, please interpret these categorical results in terms of likely Sensitivity, Specificity, Positive Predictive Value, and Negative Predictive Value if applicable, considering the statistical significance (small-n adjustments if n < 50).' : ''}
-        Write a plain English, academic interpretation of these results for a lab medicine paper. Be concise.`;
+        Write a plain English, academic interpretation of these results for a lab medicine paper. Be concise.
+        ${commonInferenceInstructions}`;
       } 
       else if ((t1 === 'numeric' && t2 === 'categorical') || (t2 === 'numeric' && t1 === 'categorical')) {
         const numVals = t1 === 'numeric' ? vals1 : vals2;
@@ -749,7 +770,8 @@ export default function LabResearchAgent() {
         Group 2 (${statResult.g2.name}): Mean ${statResult.g2.mean.toFixed(2)} (SD ${statResult.g2.std.toFixed(2)}, n=${statResult.g2.n}).
         T-statistic: ${statResult.stat.toFixed(2)}, p-value: ${statResult.p.toFixed(4)}. 
         ${formData.studyType === 'Diagnostic Accuracy' ? 'Since this is a Diagnostic Accuracy study, discuss how this continuous biomarker distribution implies discriminative capability (e.g., predicted ROC AUC performance and optimal cutoff logic) between the target condition groups.' : ''}
-        Write a plain English, academic interpretation for a lab medicine paper. State whether the difference is statistically significant (assume alpha=0.05).`;
+        Write a plain English, academic interpretation for a lab medicine paper. State whether the difference is statistically significant (assume alpha=0.05).
+        ${commonInferenceInstructions}`;
       } else {
         throw new Error("Please select one categorical and one numeric column (T-Test) or two categorical columns (Chi-Square).");
       }
@@ -789,9 +811,10 @@ export default function LabResearchAgent() {
       Here is the Drafted Manuscript:
       ${fullText}
       
-      Your task is to flag any issues based on two criteria:
+      Your task is to flag any issues based on three criteria:
       1. Unsupported claims: Any claim, statistic, or citation in the text that isn't traceable to the Fetched Evidence Pool.
       2. Inconsistent stats: Any statistical claim in the text that doesn't match the Computed Statistical Results.
+      3. Reasoning shortcuts: Flag if an adjusted odds ratio/effect size is treated as a direct causal effect without justification; if statistical significance (p < 0.05) is treated as sufficient evidence without reporting effect size/confidence intervals; or if a subgroup finding is claimed as significant without noting it wasn't pre-specified.
       
       Format the output EXACTLY as a JSON array of objects:
       [
@@ -799,7 +822,7 @@ export default function LabResearchAgent() {
           "id": "unique-string-id",
           "quote": "The exact quote from the draft that is problematic",
           "issue": "Explanation of what is wrong",
-          "type": "unsupported claim" OR "inconsistent with computed result",
+          "type": "unsupported claim" OR "inconsistent with computed result" OR "reasoning shortcut",
           "section": "introduction|methods|results|discussion|conclusion|references"
         }
       ]
@@ -1640,7 +1663,9 @@ export default function LabResearchAgent() {
                             { key: 'methodologyDocumented', label: 'Search methodology documented (databases, dates, terms)' },
                             { key: 'criteriaStated', label: 'Inclusion/exclusion criteria stated' },
                             { key: 'exclusionsDocumented', label: 'Exclusions documented with reasons' },
-                            { key: 'limitationsAcknowledged', label: 'Study limitations acknowledged' }
+                            { key: 'limitationsAcknowledged', label: 'Study limitations acknowledged' },
+                            { key: 'stardAdherence', label: 'Protocol designed adhering to STARD reporting guidelines' },
+                            { key: 'biasAcknowledged', label: 'Plausible sources of bias/confounding explicitly addressed' }
                           ].map(item => (
                             <label key={item.key} className="flex items-center gap-3 cursor-pointer group">
                               <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${preFinalChecklist[item.key as keyof typeof preFinalChecklist] ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-white' : 'border-[var(--text-muted)] group-hover:border-[var(--text-primary)]'}`}>
