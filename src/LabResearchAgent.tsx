@@ -244,6 +244,7 @@ export default function LabResearchAgent() {
   const [evidencePool, setEvidencePool] = useState<any[]>([]);
   const [topicSaturation, setTopicSaturation] = useState<any>(null); // { saturation: string, justification: string }
   const [loadingPubMed, setLoadingPubMed] = useState(false);
+  const [selectedPaperForAnnotation, setSelectedPaperForAnnotation] = useState<any>(null);
   const [clinicalTrials, setClinicalTrials] = useState<any[]>([]);
   const [loadingTrials, setLoadingTrials] = useState(false);
 
@@ -481,7 +482,7 @@ export default function LabResearchAgent() {
     }
   };
 
-  const autoFetchAndAnalyzeLiterature = async () => {
+  const fetchAndScreenLiterature = async () => {
     if (!formData.topic || !formData.population) return setError("Please fill out all fields.");
     setError('');
     setLoading(true);
@@ -489,7 +490,7 @@ export default function LabResearchAgent() {
       // 1. Fetch from backend API
       let docs: any[] = [];
       try {
-        setLoadingPubMed(true); // Reusing this for general literature loading state
+        setLoadingPubMed(true);
         const query = `${formData.topic} ${formData.population} ${formData.labSection}`;
         const searchRes = await fetch(`/api/literature-search`, {
           method: 'POST',
@@ -499,44 +500,94 @@ export default function LabResearchAgent() {
         const searchData = await searchRes.json();
         if (searchData.results && searchData.results.length > 0) {
           docs = searchData.results;
-          setEvidencePool(docs);
         } else {
           throw new Error("No literature found.");
         }
       } catch (e) {
         console.warn("Could not fetch literature for context", e);
+        throw new Error("Failed to fetch literature.");
       } finally {
         setLoadingPubMed(false);
       }
 
-      const litContext = docs.map((d: any) => `- ${d.title} (${d.pubdate}, ${d.origin})`).join('\n');
+      const litContext = docs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} | Abstract: ${d.abstract?.substring(0,300)}...`).join('\n');
+
+      const prompt = `Act as an expert systematic review screener. 
+      The user is planning a ${formData.studyType} study on "${formData.topic}" in "${formData.population}".
+      
+      Here are the fetched papers:
+      ${litContext}
+      
+      Screen these papers for relevance to the specific topic and population.
+      Format the output EXACTLY as a JSON array of objects:
+      [
+        {
+          "uid": "ID of the paper",
+          "included": true or false,
+          "reason": "1-line reason for inclusion or exclusion"
+        }
+      ]
+      Do not include markdown formatting for the JSON.`;
+      
+      const res = await callGemini(prompt, { webSearch: false, highThinking: false });
+      const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanRes);
+      
+      const screenedDocs = docs.map(d => {
+        const screenResult = parsed.find((p: any) => p.uid === String(d.uid));
+        return {
+          ...d,
+          included: screenResult ? screenResult.included : true,
+          reason: screenResult ? screenResult.reason : 'Auto-included'
+        };
+      });
+
+      setEvidencePool(screenedDocs);
+    } catch (err: any) {
+      setError(err.message || "Failed to fetch and screen literature.");
+    } finally {
+      setLoading(false);
+      setCurrentStep(2); // Move to step 2 after fetching and screening
+    }
+  };
+
+  const handleGenerateGaps = async () => {
+    if (evidencePool.filter(d => d.included).length === 0) return setError("No included papers to analyze.");
+    setError('');
+    setLoading(true);
+    try {
+      const includedDocs = evidencePool.filter(d => d.included);
+      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract?.substring(0, 500)}`).join('\n\n');
 
       const prompt = `Act as an expert medical laboratory scientist and literature analyst. 
-      The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}" populations.
+      The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}".
       
-      Here are the titles of the most recent publications fetched from PubMed and OpenAlex on this topic:
-      ${litContext || 'No recent data could be fetched. STOP.'}
+      Here is the fetched, included evidence pool:
+      ${litContext}
       
-      CRITICAL RULE: You must never state a finding, statistic, or pooled result unless it is directly present in the provided context/fetched papers. If the evidence pool is insufficient to support a claim, you must state 'Insufficient evidence in fetched literature' rather than fabricating a plausible result.
+      CRITICAL RULE: You must never state a finding, statistic, or pooled result unless it is directly present in the provided abstract text. If the evidence pool is insufficient to support a claim, you must state 'Insufficient evidence in fetched literature' rather than fabricating a plausible result.
       
-      First, classify the topic's current state of "Topic Saturation" based ONLY on the fetched literature. Use one of these exact categories: 
-      - "Saturated" (many highly similar recent papers)
-      - "Superficially Crowded" (many papers, but lacking deep clinical utility/differentiation)
-      - "Strategically Occupied" (a few high-quality foundational papers exist, but distinct niches remain)
-      - "Open" (very few or no relevant papers found).
-      Provide a brief 1-2 sentence justification for this classification based on the fetched titles.
+      First, classify the topic's current state of "Topic Saturation" based ONLY on the fetched literature. Categories: Saturated, Superficially Crowded, Strategically Occupied, Open. Provide a 1-2 sentence justification.
       
       Second, identify 3 distinct, highly specific, and clinically actionable research gaps that are currently missing from this specific body of literature.
       
-      Format the output EXACTLY as a JSON object:
-      {
-        "saturation": "Saturated | Superficially Crowded | Strategically Occupied | Open",
-        "justification": "...",
-        "gaps": ["Gap 1...", "Gap 2...", "Gap 3..."]
-      }
-      Do not include markdown formatting for the JSON, just output the raw JSON object.`;
+      For each gap, you MUST provide explicit provenance tracking: cite the UID of the paper(s) that support this gap analysis, and extract a brief verbatim quote from their abstract that justifies it.
       
-      const res = await callGemini(prompt, { webSearch: false, highThinking: true }); // No web search, rely strictly on context
+      Format EXACTLY as a JSON object:
+      {
+        "saturation": "...",
+        "justification": "...",
+        "gaps": [
+          {
+            "text": "Gap description...",
+            "provenance": [
+              { "uid": "UID here", "quote": "Verbatim quote from abstract supporting this..." }
+            ]
+          }
+        ]
+      }`;
+      
+      const res = await callGemini(prompt, { webSearch: false, highThinking: true });
       const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanRes);
       
@@ -547,16 +598,14 @@ export default function LabResearchAgent() {
         throw new Error("Invalid format returned by AI.");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to analyze literature. Try again.");
+      setError(err.message || "Failed to analyze gaps. Try again.");
     } finally {
       setLoading(false);
-      setCurrentStep(2); // Move to step 2 after fetching and analyzing
     }
   };
 
   const handleNextPhase1 = () => {
-    // Instead of just going to step 2, we fetch and analyze
-    autoFetchAndAnalyzeLiterature();
+    fetchAndScreenLiterature();
   };
 
   const handleGenerateProtocol = async () => {
@@ -582,7 +631,7 @@ export default function LabResearchAgent() {
         setLoadingTrials(false);
       }
 
-      const prompt = `Write a brief study protocol for this research gap: "${selectedGap}". 
+      const prompt = `Write a PRISMA-aligned study protocol for this research gap: "${selectedGap.text || selectedGap}". 
       The study type is "${formData.studyType}".
       
       Here are some real-world clinical trials currently registered for this topic to use as a baseline for how others have structured their studies:
@@ -590,11 +639,12 @@ export default function LabResearchAgent() {
 
       CRITICAL RULE: You must not fabricate trial results, prior findings, or statistics. Base all design on standard scientific methodology and the provided context.
 
-      Include:
+      Include PRISMA-aligned structure (especially for Diagnostic Accuracy studies):
       1. Primary Objective
-      2. Inclusion/Exclusion Criteria (inspired by how real clinical trials structure them)
+      2. Explicit Inclusion/Exclusion Criteria (inspired by how real clinical trials structure them)
       3. Minimum Sample Size estimation approach (just the logic, no complex math). If this is a Diagnostic Accuracy study, explicitly define assumptions for disease prevalence, target sensitivity, target specificity, and precision.
       4. Variables to collect.
+      5. Search Strategy Documentation & PRISMA Flow (note that we screened ${evidencePool.length} papers, included ${evidencePool.filter(d=>d.included).length}).
       
       AT THE VERY END, on a new line, write exactly:
       [CSV_TEMPLATE]
@@ -911,7 +961,7 @@ export default function LabResearchAgent() {
                     <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Literature Review</h2>
                     <p className="text-[var(--text-secondary)] mt-2">Identify high-impact research gaps using AI grounded in recent literature.</p>
                   </div>
-                  <PrimaryButton onClick={autoFetchAndAnalyzeLiterature} loading={loading} icon={Search}>Regenerate Analysis</PrimaryButton>
+                  <PrimaryButton onClick={fetchAndScreenLiterature} loading={loading} icon={Search}>Rescan Literature</PrimaryButton>
                 </div>
                 
                 {gaps.length > 0 ? (
@@ -936,12 +986,30 @@ export default function LabResearchAgent() {
                             onClick={() => setSelectedGap(gap)}
                             className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
                           >
-                            <div className="flex gap-4">
+                            <div className="flex gap-4 mb-3">
                               <div className="pt-1 shrink-0">
                                 <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
                               </div>
-                              <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap}</p>
+                              <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap.text || gap}</p>
                             </div>
+                            
+                            {gap.provenance && gap.provenance.length > 0 && (
+                               <div className="pl-10 space-y-2 mt-4">
+                                 {gap.provenance.map((prov: any, pIdx: number) => {
+                                   const sourceDoc = evidencePool.find(d => String(d.uid) === String(prov.uid));
+                                   return (
+                                     <div key={pIdx} className="p-3 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg">
+                                        <div className="flex justify-between items-start mb-1">
+                                          <span className="text-[10px] uppercase font-black tracking-widest text-[var(--accent-secondary)]">Provenance Link</span>
+                                          {sourceDoc && <button onClick={(e) => { e.stopPropagation(); setSelectedPaperForAnnotation(sourceDoc); }} className="text-[10px] text-[var(--text-muted)] hover:underline">View Source</button>}
+                                        </div>
+                                        <p className="text-xs text-[var(--text-secondary)] italic border-l-2 border-[var(--border-color)] pl-2">"{prov.quote}"</p>
+                                        <p className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">Source ID: {prov.uid} {!sourceDoc && '(Unverified Source)'}</p>
+                                     </div>
+                                   );
+                                 })}
+                               </div>
+                            )}
                           </motion.div>
                         ))}
                       </div>
@@ -953,16 +1021,32 @@ export default function LabResearchAgent() {
                     </div>
 
                     <div className="xl:col-span-1">
-                      <SectionCard title="Evidence Pool" subtitle="Fetched Literature" className="!p-5 bg-[var(--bg-app)]">
-                        <p className="text-xs text-[var(--text-secondary)] mb-4">These papers were automatically fetched to ground the gap analysis.</p>
+                      <SectionCard title="ASReview Screening" subtitle="Fetched Literature" className="!p-5 bg-[var(--bg-app)]">
+                        <p className="text-xs text-[var(--text-secondary)] mb-4">Click to toggle inclusion. AI screened {evidencePool.length} papers.</p>
                         
-                        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                        <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
                           {evidencePool.map((doc: any, i: number) => (
-                            <div key={i} className="p-3 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl relative">
-                              <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-color)]">{doc.origin}</span>
-                              <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)] pr-12">{doc.title}</h4>
-                              <p className="text-[10px] text-[var(--text-muted)] mb-2 uppercase tracking-wide">{doc.pubdate} • {doc.source}</p>
-                              {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-[var(--accent-secondary)] hover:underline block">View Paper &rarr;</a>}
+                            <div key={i} className={`p-3 border rounded-xl relative transition-all ${doc.included ? 'bg-[var(--bg-paper)] border-[var(--border-color)]' : 'bg-[var(--bg-app)] border-red-900/20 opacity-60'}`}>
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-color)]">{doc.origin}</span>
+                                <button 
+                                  onClick={() => {
+                                    const next = [...evidencePool];
+                                    next[i].included = !next[i].included;
+                                    setEvidencePool(next);
+                                  }}
+                                  className={`text-[10px] font-bold px-2 py-1 rounded ${doc.included ? 'bg-[var(--accent-primary)] text-white' : 'bg-gray-300 text-black hover:bg-gray-400'}`}
+                                >
+                                  {doc.included ? 'Included' : 'Excluded'}
+                                </button>
+                              </div>
+                              <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)]">{doc.title}</h4>
+                              <p className="text-[10px] text-[var(--text-muted)] mb-2 italic">"{doc.reason}"</p>
+                              
+                              <div className="flex gap-4">
+                                {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-[var(--accent-secondary)] hover:underline block">Link &rarr;</a>}
+                                <button onClick={() => setSelectedPaperForAnnotation(doc)} className="text-[10px] font-bold text-[var(--text-secondary)] hover:underline">View Extract</button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -974,12 +1058,27 @@ export default function LabResearchAgent() {
                     {loading ? (
                        <div className="flex flex-col items-center justify-center">
                          <Loader2 className="w-12 h-12 animate-spin text-[var(--accent-primary)] mb-4" />
-                         <p className="text-[var(--text-secondary)]">Fetching literature and analyzing gaps...</p>
+                         <p className="text-[var(--text-secondary)]">Fetching literature and screening based on ASReview principles...</p>
                        </div>
                     ) : (
                        <>
                         <BookOpen className="w-16 h-16 mx-auto mb-6 opacity-20 text-[var(--text-primary)]" />
-                        <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">Click "Regenerate Analysis" if the automatic fetch failed or to re-run the synthesis.</p>
+                        <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto mb-6">Literature screened. Review the evidence pool on the right, toggle inclusions if needed, and generate gaps.</p>
+                        <PrimaryButton onClick={handleGenerateGaps} icon={Search}>Generate Gaps from Included Papers</PrimaryButton>
+                        
+                        <div className="mt-8 pt-8 border-t border-[var(--border-color)] grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[300px] overflow-y-auto">
+                           {evidencePool.map((doc, i) => (
+                             <div key={i} className={`p-3 border text-left rounded-lg text-xs ${doc.included ? 'border-green-500/30' : 'border-red-500/30 opacity-50'}`}>
+                                <p className="font-bold truncate mb-1">{doc.title}</p>
+                                <p className="text-[9px] truncate">{doc.reason}</p>
+                                <button onClick={() => {
+                                  const next = [...evidencePool];
+                                  next[i].included = !next[i].included;
+                                  setEvidencePool(next);
+                                }} className="text-blue-500 underline mt-2 block">{doc.included ? 'Exclude' : 'Re-include'}</button>
+                             </div>
+                           ))}
+                        </div>
                        </>
                     )}
                   </SectionCard>
@@ -1422,6 +1521,35 @@ export default function LabResearchAgent() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Source Annotation Modal */}
+      {selectedPaperForAnnotation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setSelectedPaperForAnnotation(null)}>
+          <div className="bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-3xl p-8 max-w-3xl w-full max-h-[80vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+             <div className="flex justify-between items-start mb-6">
+               <div>
+                 <span className="text-[10px] font-black uppercase tracking-widest text-[var(--accent-secondary)] mb-2 block">{selectedPaperForAnnotation.origin} • {selectedPaperForAnnotation.uid}</span>
+                 <h2 className="text-2xl font-bold text-[var(--text-primary)] leading-tight">{selectedPaperForAnnotation.title}</h2>
+               </div>
+               <button onClick={() => setSelectedPaperForAnnotation(null)} className="text-[var(--text-muted)] hover:text-white"><X className="w-6 h-6" /></button>
+             </div>
+             <p className="text-sm font-medium text-[var(--text-muted)] mb-6">{selectedPaperForAnnotation.source} ({selectedPaperForAnnotation.pubdate})</p>
+             <div className="prose prose-invert max-w-none prose-p:text-sm prose-p:leading-relaxed text-[var(--text-secondary)] border-t border-[var(--border-color)] pt-6">
+                <h4 className="text-sm font-bold text-[var(--text-primary)] mb-3">Abstract Excerpt</h4>
+                {selectedPaperForAnnotation.abstract ? (
+                  <p>{selectedPaperForAnnotation.abstract}</p>
+                ) : (
+                  <p className="italic opacity-50">No full abstract text available for this paper. Synthesis relies on title and metadata.</p>
+                )}
+             </div>
+             {selectedPaperForAnnotation.url && (
+               <a href={selectedPaperForAnnotation.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-8 text-sm font-bold text-[var(--accent-primary)] hover:underline">
+                 View Original Publication <ArrowRight className="w-4 h-4" />
+               </a>
+             )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

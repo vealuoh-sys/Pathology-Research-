@@ -92,12 +92,50 @@ async function startServer() {
 
       let docs: any[] = [];
 
+      // Helper for OpenAlex Abstract
+      function reconstructAbstract(invertedIndex: any) {
+        if (!invertedIndex) return '';
+        const entries = Object.entries(invertedIndex);
+        let maxIndex = 0;
+        for (const [word, positions] of entries) {
+          for (const pos of positions as number[]) {
+            if (pos > maxIndex) maxIndex = pos;
+          }
+        }
+        const words = new Array(maxIndex + 1).fill('');
+        for (const [word, positions] of entries) {
+          for (const pos of positions as number[]) {
+            words[pos] = word;
+          }
+        }
+        return words.join(' ').replace(/\s+/g, ' ').trim();
+      }
+
       if (pubmedRes.status === 'fulfilled') {
         const searchData = await pubmedRes.value.json();
         if (searchData.esearchresult?.idlist?.length > 0) {
           const ids = searchData.esearchresult.idlist.join(',');
-          const summaryRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
+          const [summaryRes, xmlRes] = await Promise.all([
+            fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`),
+            fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${ids}&retmode=xml`)
+          ]);
           const summaryData = await summaryRes.json();
+          const xmlText = await xmlRes.text();
+          
+          const abstracts: Record<string, string> = {};
+          const articles = xmlText.split(/<PubmedArticle>|<PubmedBookArticle>/).slice(1);
+          for (const article of articles) {
+            const pmidMatch = article.match(/<PMID[^>]*>(\d+)<\/PMID>/);
+            if (!pmidMatch) continue;
+            const pmid = pmidMatch[1];
+            const abstractLines = [];
+            const abstractMatches = article.matchAll(/<AbstractText[^>]*>(.*?)<\/AbstractText>/g);
+            for (const match of abstractMatches) {
+              abstractLines.push(match[1]);
+            }
+            abstracts[pmid] = abstractLines.join(' ');
+          }
+
           searchData.esearchresult.idlist.forEach((id: string) => {
             docs.push({
               title: summaryData.result[id]?.title,
@@ -105,7 +143,8 @@ async function startServer() {
               source: summaryData.result[id]?.source || 'PubMed',
               uid: id,
               url: `https://pubmed.ncbi.nlm.nih.gov/${id}`,
-              origin: 'PubMed'
+              origin: 'PubMed',
+              abstract: abstracts[id] || ''
             });
           });
         }
@@ -120,7 +159,8 @@ async function startServer() {
             source: w.host_venue?.display_name || w.primary_location?.source?.display_name || 'OpenAlex',
             uid: w.id,
             url: w.id,
-            origin: 'OpenAlex'
+            origin: 'OpenAlex',
+            abstract: reconstructAbstract(w.abstract_inverted_index)
           });
         });
       }
