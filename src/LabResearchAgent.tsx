@@ -60,9 +60,10 @@ const describeCategorical = (values: any[]) => {
     return acc;
   }, {} as Record<string, number>);
   const total = values.length;
-  return Object.entries(counts).map(([label, count]) => ({
-    label, count, percentage: ((count / total) * 100).toFixed(1)
-  })).sort((a, b) => b.count - a.count);
+  return Object.entries(counts).map(([label, count]) => {
+    const c = count as number;
+    return { label, count: c, percentage: ((c / total) * 100).toFixed(1) };
+  }).sort((a, b) => b.count - a.count);
 };
 
 const chiSquarePValue = (chiSq: number, df: number) => {
@@ -155,7 +156,7 @@ const MarkdownLite = ({ content }: { content: string }) => {
   return <div dangerouslySetInnerHTML={{ __html: parsed }} className="text-[15px] leading-relaxed text-[var(--text-secondary)]" />;
 };
 
-const SectionCard = ({ children, title, subtitle, className="" }: { children: React.ReactNode, title?: string, subtitle?: string, className?: string }) => (
+const SectionCard: React.FC<{ children: React.ReactNode, title?: string, subtitle?: string, className?: string }> = ({ children, title, subtitle, className="" }) => (
   <motion.div 
     initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
@@ -248,6 +249,22 @@ export default function LabResearchAgent() {
   const [clinicalTrials, setClinicalTrials] = useState<any[]>([]);
   const [loadingTrials, setLoadingTrials] = useState(false);
 
+  // Refinement pass state
+  const [refinementFlags, setRefinementFlags] = useState<any[]>([]);
+  const [isRefining, setIsRefining] = useState(false);
+  const [isReportFinalized, setIsReportFinalized] = useState(false);
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+
+  const [screeningCounts, setScreeningCounts] = useState<{initial: number, deduplicated: number, screened: number, included: number} | null>(null);
+  const [preFinalChecklist, setPreFinalChecklist] = useState({
+    citationsVerified: false,
+    methodologyDocumented: false,
+    criteriaStated: false,
+    exclusionsDocumented: false,
+    limitationsAcknowledged: false
+  });
+
   const [literatureData, setLiteratureData] = useState<any[]>([]);
 
   const loadProject = (p: any) => {
@@ -264,6 +281,7 @@ export default function LabResearchAgent() {
     setTopicSaturation(p.topicSaturation || null);
     setClinicalTrials(p.clinicalTrials || []);
     setLiteratureData(p.literatureData || []);
+    setScreeningCounts(p.screeningCounts || null);
     setCurrentStep(p.currentStep || 1);
     setShowHistory(false);
   };
@@ -282,6 +300,16 @@ export default function LabResearchAgent() {
     setTopicSaturation(null);
     setClinicalTrials([]);
     setLiteratureData([]);
+    setScreeningCounts(null);
+    setRefinementFlags([]);
+    setIsReportFinalized(false);
+    setPreFinalChecklist({
+      citationsVerified: false,
+      methodologyDocumented: false,
+      criteriaStated: false,
+      exclusionsDocumented: false,
+      limitationsAcknowledged: false
+    });
     setCurrentStep(1);
     setShowHistory(false);
   };
@@ -489,6 +517,7 @@ export default function LabResearchAgent() {
     try {
       // 1. Fetch from backend API
       let docs: any[] = [];
+      let counts = { initial: 0, deduplicated: 0, screened: 0, included: 0 };
       try {
         setLoadingPubMed(true);
         const query = `${formData.topic} ${formData.population} ${formData.labSection}`;
@@ -500,6 +529,9 @@ export default function LabResearchAgent() {
         const searchData = await searchRes.json();
         if (searchData.results && searchData.results.length > 0) {
           docs = searchData.results;
+          counts.initial = searchData.counts?.initial || docs.length;
+          counts.deduplicated = searchData.counts?.deduplicated || docs.length;
+          counts.screened = docs.length;
         } else {
           throw new Error("No literature found.");
         }
@@ -542,6 +574,8 @@ export default function LabResearchAgent() {
         };
       });
 
+      counts.included = screenedDocs.filter(d => d.included).length;
+      setScreeningCounts(counts);
       setEvidencePool(screenedDocs);
     } catch (err: any) {
       setError(err.message || "Failed to fetch and screen literature.");
@@ -570,6 +604,7 @@ export default function LabResearchAgent() {
       First, classify the topic's current state of "Topic Saturation" based ONLY on the fetched literature. Categories: Saturated, Superficially Crowded, Strategically Occupied, Open. Provide a 1-2 sentence justification.
       
       Second, identify 3 distinct, highly specific, and clinically actionable research gaps that are currently missing from this specific body of literature.
+      CRITICAL METHODOLOGY: You MUST organize your gap analysis by overarching theme (e.g., "diagnostic methods", "patient population factors", "reported limitations") and perform a cross-study comparison. Compare and contrast across studies within each theme, noting where studies agree or conflict. Do not simply list a study-by-study summary.
       
       For each gap, you MUST provide explicit provenance tracking: cite the UID of the paper(s) that support this gap analysis, and extract a brief verbatim quote from their abstract that justifies it.
       
@@ -579,7 +614,7 @@ export default function LabResearchAgent() {
         "justification": "...",
         "gaps": [
           {
-            "text": "Gap description...",
+            "text": "Gap description and thematic cross-study synthesis...",
             "provenance": [
               { "uid": "UID here", "quote": "Verbatim quote from abstract supporting this..." }
             ]
@@ -729,21 +764,115 @@ export default function LabResearchAgent() {
     }
   };
 
+  const runRefinementPass = async (manuscript: any) => {
+    setIsRefining(true);
+    setRefinementFlags([]);
+    setIsReportFinalized(false);
+    
+    try {
+      const fullText = Object.entries(manuscript).map(([k, v]) => `${k.toUpperCase()}:\n${v}`).join('\n\n');
+      const litContext = evidencePool.map((d: any) => `ID: ${d.uid} | Title: ${d.title} | Abstract: ${d.abstract?.substring(0,300)}`).join('\n');
+      
+      let statsContext = "No statistical analysis computed.";
+      if (analysis.result) {
+        statsContext = `Computed Stats - Test: ${analysis.result.name}, p-value: ${analysis.result.p}, Statistic: ${analysis.result.stat}`;
+      }
+
+      const prompt = `Act as a rigorous scientific reviewer. You are performing a report-refinement pass on a drafted manuscript.
+      
+      Here is the Fetched Evidence Pool (the ONLY valid sources for claims):
+      ${litContext || 'No evidence fetched.'}
+      
+      Here are the Computed Statistical Results (the ONLY valid results for this study):
+      ${statsContext}
+      
+      Here is the Drafted Manuscript:
+      ${fullText}
+      
+      Your task is to flag any issues based on two criteria:
+      1. Unsupported claims: Any claim, statistic, or citation in the text that isn't traceable to the Fetched Evidence Pool.
+      2. Inconsistent stats: Any statistical claim in the text that doesn't match the Computed Statistical Results.
+      
+      Format the output EXACTLY as a JSON array of objects:
+      [
+        {
+          "id": "unique-string-id",
+          "quote": "The exact quote from the draft that is problematic",
+          "issue": "Explanation of what is wrong",
+          "type": "unsupported claim" OR "inconsistent with computed result",
+          "section": "introduction|methods|results|discussion|conclusion|references"
+        }
+      ]
+      Return an empty array [] if no issues are found. Do not include markdown formatting for the JSON.`;
+      
+      const res = await callGemini(prompt, { highThinking: true });
+      const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanRes);
+      let flags = Array.isArray(parsed) ? parsed : [];
+      
+      // Additional DOI CrossRef Verification
+      if (manuscript.references) {
+        const doiRegex = /\b(10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+)\b/g;
+        let match;
+        const dois = new Set<string>();
+        while ((match = doiRegex.exec(manuscript.references)) !== null) {
+          dois.add(match[1]);
+        }
+        
+        for (const doi of Array.from(dois)) {
+          try {
+            const verRes = await fetch('/api/verify-doi', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ doi })
+            });
+            const verData = await verRes.json();
+            if (!verData.verified) {
+              flags.push({
+                id: `doi-err-${doi}`,
+                quote: doi,
+                issue: `DOI ${doi} could not be verified via CrossRef. It may be hallucinated or incorrect.`,
+                type: 'unverified citation',
+                section: 'references'
+              });
+            }
+          } catch (e) {
+            console.warn("Failed to verify DOI", doi, e);
+          }
+        }
+      }
+
+      if (flags.length > 0) {
+        setRefinementFlags(flags.map((f: any) => ({ ...f, resolved: false })));
+      } else {
+        setIsReportFinalized(true);
+      }
+    } catch (err: any) {
+      console.error("Refinement pass failed:", err);
+      // If refinement fails, we just don't block the user, or show a small error.
+      setIsReportFinalized(true); 
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
   const generateReport = async () => {
     setError('');
     setLoading(true);
+    setIsReportFinalized(false);
+    setRefinementFlags([]);
     try {
       const isLitReview = formData.studyType === 'Automated Literature Review';
       const parts = ['Introduction', 'Methods', 'Results', 'Discussion', 'Conclusion', 'References'];
       let manuscript: any = {};
       
-      const litContext = evidencePool.map((d: any) => `- ${d.title} (${d.pubdate}) [Source: ${d.origin}]`).join('\n');
+      const litContext = evidencePool.map((d: any) => `- ${d.title} (${d.pubdate}) [Source: ${d.origin}] ${d.doi ? `DOI: ${d.doi}` : ''}`).join('\n');
 
       const baseContext = isLitReview 
         ? `Topic: ${formData.topic}. Study Type: Systematic Review / Meta-Analysis. 
            We fetched ${literatureData.length} papers from academic databases.
            Synthesis Results: ${analysis.interpretation || 'No synthesis completed yet.'}`
-        : `Topic: ${formData.topic}. Study Type: ${formData.studyType}. Gap addressed: ${selectedGap}. 
+        : `Topic: ${formData.topic}. Study Type: ${formData.studyType}. Gap addressed: ${selectedGap.text || selectedGap}. 
            Protocol details: ${protocol.text.substring(0, 500)}... 
            Statistical Findings: ${analysis.interpretation || 'No statistical analysis was finalized.'}`;
       
@@ -761,6 +890,8 @@ export default function LabResearchAgent() {
           prompt = `You are writing a lab medicine manuscript. 
           Write the **References** section of the manuscript. 
           CRITICAL RULE: You MUST ONLY include references from the following fetched evidence pool. Do NOT invent fake DOIs or authors, and do not use outside knowledge. If the pool is small, only list what is there.
+          CRITICAL RULE: You MUST include the exact DOI for every reference you list (format: doi:10.xxxx/yyyy) if one is provided in the pool.
+          
           Fetched Evidence Pool:
           ${litContext}
           
@@ -772,9 +903,10 @@ export default function LabResearchAgent() {
       }
       
       setReport(manuscript);
+      setLoading(false); // End initial loading before refinement
+      await runRefinementPass(manuscript);
     } catch (err: any) {
       setError(err.message || "Failed to generate report.");
-    } finally {
       setLoading(false);
     }
   };
@@ -1022,7 +1154,24 @@ export default function LabResearchAgent() {
 
                     <div className="xl:col-span-1">
                       <SectionCard title="ASReview Screening" subtitle="Fetched Literature" className="!p-5 bg-[var(--bg-app)]">
-                        <p className="text-xs text-[var(--text-secondary)] mb-4">Click to toggle inclusion. AI screened {evidencePool.length} papers.</p>
+                        {screeningCounts && (
+                          <div className="mb-4 bg-[var(--bg-paper)] p-3 rounded-xl border border-[var(--border-color)]">
+                            <h4 className="text-[10px] uppercase font-bold text-[var(--text-muted)] mb-2">Screening Funnel</h4>
+                            <div className="flex justify-between items-center text-xs py-1">
+                              <span className="text-[var(--text-primary)]">Initial Hits:</span>
+                              <span className="font-mono text-[var(--accent-primary)]">{screeningCounts.initial}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs py-1">
+                              <span className="text-[var(--text-primary)]">Deduplicated:</span>
+                              <span className="font-mono text-[var(--accent-primary)]">{screeningCounts.deduplicated}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs py-1">
+                              <span className="text-[var(--text-primary)]">Included:</span>
+                              <span className="font-mono text-[var(--accent-primary)]">{screeningCounts.included} / {screeningCounts.screened}</span>
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-xs text-[var(--text-secondary)] mb-4">Click to toggle inclusion.</p>
                         
                         <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
                           {evidencePool.map((doc: any, i: number) => (
@@ -1041,6 +1190,14 @@ export default function LabResearchAgent() {
                                 </button>
                               </div>
                               <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)]">{doc.title}</h4>
+                              <div className="flex gap-2 items-center mb-1">
+                                <span className="text-[9px] text-[var(--text-muted)]">{doc.pubdate}</span>
+                                {doc.citations != null && (
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${doc.citations > 50 ? 'bg-orange-500/20 text-orange-400' : 'bg-[var(--bg-app)] text-[var(--text-muted)]'}`}>
+                                    {doc.citations} citations
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-[10px] text-[var(--text-muted)] mb-2 italic">"{doc.reason}"</p>
                               
                               <div className="flex gap-4">
@@ -1376,7 +1533,15 @@ export default function LabResearchAgent() {
                     <p className="text-[var(--text-secondary)] mt-2">Generate a fully drafted academic paper based on your results.</p>
                   </div>
                   <div className="flex gap-3">
-                    {report && <SecondaryButton onClick={copyReport} icon={Clipboard}>Copy Text</SecondaryButton>}
+                    {report && (
+                      <SecondaryButton 
+                        onClick={copyReport} 
+                        disabled={!isReportFinalized || !Object.values(preFinalChecklist).every(Boolean)} 
+                        icon={Clipboard}
+                      >
+                        {isReportFinalized && Object.values(preFinalChecklist).every(Boolean) ? 'Copy Text' : 'Resolve Flags & Checklist to Export'}
+                      </SecondaryButton>
+                    )}
                     <PrimaryButton onClick={generateReport} loading={loading} icon={PenTool}>{report ? "Regenerate" : "Draft Manuscript"}</PrimaryButton>
                   </div>
                 </div>
@@ -1400,23 +1565,142 @@ export default function LabResearchAgent() {
                 )}
 
                 {report && !loading && (
-                  <div className="bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-3xl p-8 md:p-16 shadow-lg max-w-4xl mx-auto">
-                    <div className="text-center mb-16 border-b border-[var(--border-color)] pb-12">
-                       <h1 className="text-3xl md:text-5xl font-bold font-serif mb-6 text-[var(--text-primary)] leading-tight">
-                         {formData.topic}
-                       </h1>
-                       <p className="text-xl italic font-serif text-[var(--text-secondary)]">A study in {formData.population}</p>
-                    </div>
-                    
-                    {['introduction', 'methods', 'results', 'discussion', 'conclusion', 'references'].map((section) => (
-                      <div key={section} className="mb-12">
-                        <h3 className="text-2xl font-bold font-serif mb-6 uppercase tracking-wider text-[var(--text-primary)] border-b border-[var(--border-color)] pb-3">
-                          {section}
-                        </h3>
-                        <MarkdownLite content={report[section] || ''} />
+                  <>
+                    {isRefining && (
+                      <SectionCard className="text-center py-12 flex flex-col items-center justify-center bg-blue-900/10 border-blue-500/30">
+                        <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
+                        <h3 className="text-lg font-bold font-serif text-blue-400 mb-2">Refining Manuscript...</h3>
+                        <p className="text-[var(--text-muted)] text-sm max-w-md">Running a secondary review pass to verify internal consistency and trace all claims back to the fetched evidence pool.</p>
+                      </SectionCard>
+                    )}
+
+                    {!isRefining && refinementFlags.length > 0 && !isReportFinalized && (
+                      <div className="bg-red-900/10 border border-red-500/30 rounded-2xl p-6 mb-8 shadow-lg">
+                        <div className="flex items-center gap-3 mb-4">
+                          <AlertTriangle className="text-red-500 w-6 h-6" />
+                          <h3 className="text-lg font-bold text-red-500">Refinement Pass: Issues Detected</h3>
+                        </div>
+                        <p className="text-sm text-[var(--text-secondary)] mb-6">The secondary review pass flagged potential inconsistencies or unsupported claims. Please review, edit the text to fix them, and then mark as resolved.</p>
+                        
+                        <div className="space-y-4">
+                          {refinementFlags.map((flag, idx) => (
+                            <div key={idx} className={`p-4 rounded-xl border transition-all ${flag.resolved ? 'bg-green-900/10 border-green-500/30 opacity-60' : 'bg-[var(--bg-paper)] border-red-500/30'}`}>
+                              <div className="flex justify-between items-start mb-2">
+                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${flag.type.includes('unsupported') ? 'bg-orange-500/20 text-orange-400' : 'bg-red-500/20 text-red-400'}`}>
+                                  {flag.type}
+                                </span>
+                                <div className="flex gap-2">
+                                  {!flag.resolved && (
+                                    <>
+                                      <button onClick={() => {
+                                          const sec = flag.section?.toLowerCase();
+                                          setEditingSection(sec);
+                                          setEditingContent(report[sec] || '');
+                                        }} 
+                                        className="text-[10px] font-bold px-3 py-1 rounded bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary-hover)]">
+                                        Edit {flag.section}
+                                      </button>
+                                      <button onClick={() => {
+                                          const next = [...refinementFlags];
+                                          next[idx].resolved = true;
+                                          setRefinementFlags(next);
+                                          if (next.every(f => f.resolved)) setIsReportFinalized(true);
+                                        }} 
+                                        className="text-[10px] font-bold px-3 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-white">
+                                        Mark Resolved
+                                      </button>
+                                    </>
+                                  )}
+                                  {flag.resolved && <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Resolved</span>}
+                                </div>
+                              </div>
+                              <p className="text-xs font-bold text-[var(--text-primary)] mb-1">"{flag.quote}"</p>
+                              <p className="text-[11px] text-[var(--text-secondary)]">{flag.issue}</p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+
+                    {!isRefining && isReportFinalized && refinementFlags.length > 0 && (
+                      <div className="bg-green-900/10 border border-green-500/30 rounded-2xl p-4 mb-8 flex items-center justify-between shadow-lg">
+                        <div className="flex items-center gap-3">
+                          <CheckCircle className="text-green-500 w-5 h-5" />
+                          <p className="text-sm font-bold text-green-500">All refinement flags resolved. Report finalized.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!isRefining && report && (
+                      <div className="bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-2xl p-6 mb-8 shadow-lg">
+                        <h3 className="text-lg font-bold text-[var(--text-primary)] mb-4">Pre-Finalization Checklist</h3>
+                        <div className="space-y-3">
+                          {[
+                            { key: 'citationsVerified', label: 'Citations verified against CrossRef/DOI' },
+                            { key: 'methodologyDocumented', label: 'Search methodology documented (databases, dates, terms)' },
+                            { key: 'criteriaStated', label: 'Inclusion/exclusion criteria stated' },
+                            { key: 'exclusionsDocumented', label: 'Exclusions documented with reasons' },
+                            { key: 'limitationsAcknowledged', label: 'Study limitations acknowledged' }
+                          ].map(item => (
+                            <label key={item.key} className="flex items-center gap-3 cursor-pointer group">
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${preFinalChecklist[item.key as keyof typeof preFinalChecklist] ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-white' : 'border-[var(--text-muted)] group-hover:border-[var(--text-primary)]'}`}>
+                                {preFinalChecklist[item.key as keyof typeof preFinalChecklist] && <CheckCircle className="w-3 h-3" />}
+                              </div>
+                              <span className="text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">{item.label}</span>
+                              <input type="checkbox" className="hidden" 
+                                checked={preFinalChecklist[item.key as keyof typeof preFinalChecklist]} 
+                                onChange={(e) => setPreFinalChecklist({...preFinalChecklist, [item.key]: e.target.checked})} 
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className={`bg-[var(--bg-paper)] border ${isReportFinalized || refinementFlags.length === 0 ? 'border-[var(--border-color)]' : 'border-red-500/30'} rounded-3xl p-8 md:p-16 shadow-lg max-w-4xl mx-auto transition-colors`}>
+                      <div className="text-center mb-16 border-b border-[var(--border-color)] pb-12">
+                         <h1 className="text-3xl md:text-5xl font-bold font-serif mb-6 text-[var(--text-primary)] leading-tight">
+                           {formData.topic}
+                         </h1>
+                         <p className="text-xl italic font-serif text-[var(--text-secondary)]">A study in {formData.population}</p>
+                      </div>
+                      
+                      {['introduction', 'methods', 'results', 'discussion', 'conclusion', 'references'].map((section) => (
+                        <div key={section} className="mb-12">
+                          <div className="flex justify-between items-end border-b border-[var(--border-color)] pb-3 mb-6">
+                            <h3 className="text-2xl font-bold font-serif uppercase tracking-wider text-[var(--text-primary)]">
+                              {section}
+                            </h3>
+                            {report && !isRefining && (
+                              <button 
+                                onClick={() => {
+                                  if (editingSection === section) {
+                                    setReport({ ...report, [section]: editingContent });
+                                    setEditingSection(null);
+                                  } else {
+                                    setEditingSection(section);
+                                    setEditingContent(report[section] || '');
+                                  }
+                                }}
+                                className={`text-xs font-bold px-3 py-1 rounded-full border transition-colors ${editingSection === section ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)]' : 'bg-transparent text-[var(--accent-primary)] border-[var(--accent-primary)] hover:bg-[var(--accent-primary)] hover:text-white'}`}
+                              >
+                                {editingSection === section ? 'Save Changes' : 'Edit Section'}
+                              </button>
+                            )}
+                          </div>
+                          {editingSection === section ? (
+                            <textarea 
+                              value={editingContent}
+                              onChange={(e) => setEditingContent(e.target.value)}
+                              className="w-full h-64 bg-[var(--bg-app)] text-[var(--text-primary)] border border-[var(--accent-primary)] p-4 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
+                            />
+                          ) : (
+                            <MarkdownLite content={report[section] || ''} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </motion.div>
             )}

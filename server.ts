@@ -80,17 +80,45 @@ async function startServer() {
     }
   });
 
+  app.post("/api/verify-doi", async (req, res) => {
+    try {
+      const { doi } = req.body;
+      if (!doi) throw new Error("DOI is required");
+      
+      const cleanDoi = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
+      const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(cleanDoi)}`);
+      
+      if (!response.ok) {
+        return res.json({ verified: false, error: "Not found in CrossRef" });
+      }
+      
+      const data = await response.json();
+      const work = data.message;
+      
+      res.json({
+        verified: true,
+        title: work.title?.[0],
+        authors: work.author?.map((a: any) => `${a.given} ${a.family}`).join(', '),
+        year: work.created?.['date-parts']?.[0]?.[0] || work.issued?.['date-parts']?.[0]?.[0]
+      });
+    } catch (error: any) {
+      console.error("DOI Verification Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/literature-search", async (req, res) => {
     try {
       const { query } = req.body;
       if (!query) throw new Error("Query is required");
 
       const [pubmedRes, oaRes] = await Promise.allSettled([
-        fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=10`),
-        fetch(`https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=10`)
+        fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=15`),
+        fetch(`https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15`)
       ]);
 
       let docs: any[] = [];
+      let initialCount = 0;
 
       // Helper for OpenAlex Abstract
       function reconstructAbstract(invertedIndex: any) {
@@ -114,6 +142,7 @@ async function startServer() {
       if (pubmedRes.status === 'fulfilled') {
         const searchData = await pubmedRes.value.json();
         if (searchData.esearchresult?.idlist?.length > 0) {
+          initialCount += searchData.esearchresult.idlist.length;
           const ids = searchData.esearchresult.idlist.join(',');
           const [summaryRes, xmlRes] = await Promise.all([
             fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`),
@@ -137,14 +166,26 @@ async function startServer() {
           }
 
           searchData.esearchresult.idlist.forEach((id: string) => {
+            const article = summaryData.result[id];
+            if (!article) return;
+            
+            // Try to find DOI in articleids
+            let doi = '';
+            if (article.articleids) {
+              const doiObj = article.articleids.find((aid: any) => aid.idtype === 'doi');
+              if (doiObj) doi = doiObj.value;
+            }
+
             docs.push({
-              title: summaryData.result[id]?.title,
-              pubdate: summaryData.result[id]?.pubdate || 'Unknown',
-              source: summaryData.result[id]?.source || 'PubMed',
+              title: article.title,
+              pubdate: article.pubdate || 'Unknown',
+              source: article.source || 'PubMed',
               uid: id,
               url: `https://pubmed.ncbi.nlm.nih.gov/${id}`,
               origin: 'PubMed',
-              abstract: abstracts[id] || ''
+              abstract: abstracts[id] || '',
+              doi: doi,
+              citations: null // PubMed eutils doesn't easily return citation counts
             });
           });
         }
@@ -152,6 +193,7 @@ async function startServer() {
 
       if (oaRes.status === 'fulfilled') {
         const oaData = await oaRes.value.json();
+        initialCount += (oaData.results || []).length;
         (oaData.results || []).forEach((w: any) => {
           docs.push({
             title: w.display_name,
@@ -160,24 +202,52 @@ async function startServer() {
             uid: w.id,
             url: w.id,
             origin: 'OpenAlex',
-            abstract: reconstructAbstract(w.abstract_inverted_index)
+            abstract: reconstructAbstract(w.abstract_inverted_index),
+            doi: w.doi ? w.doi.replace('https://doi.org/', '') : '',
+            citations: w.cited_by_count
           });
         });
       }
 
-      // Deduplicate roughly by title
+      // Deduplicate roughly by DOI first, then title
       const uniqueDocs: any[] = [];
+      const seenDois = new Set();
       const seenTitles = new Set();
+
       for (const d of docs) {
         if (!d.title) continue;
         const normalizedTitle = d.title.toLowerCase().trim();
-        if (!seenTitles.has(normalizedTitle)) {
-          seenTitles.add(normalizedTitle);
+        
+        let isDuplicate = false;
+        if (d.doi) {
+          const normalizedDoi = d.doi.toLowerCase().trim();
+          if (seenDois.has(normalizedDoi)) {
+            isDuplicate = true;
+          } else {
+            seenDois.add(normalizedDoi);
+          }
+        }
+        
+        if (!isDuplicate) {
+          if (seenTitles.has(normalizedTitle)) {
+            isDuplicate = true;
+          } else {
+            seenTitles.add(normalizedTitle);
+          }
+        }
+        
+        if (!isDuplicate) {
           uniqueDocs.push(d);
         }
       }
 
-      res.json({ results: uniqueDocs.slice(0, 15) }); // Return top 15 combined
+      res.json({ 
+        results: uniqueDocs.slice(0, 15),
+        counts: {
+          initial: initialCount,
+          deduplicated: uniqueDocs.length
+        }
+      }); // Return top 15 combined
     } catch (error: any) {
       console.error("Literature Search Error:", error);
       res.status(500).json({ error: error.message });
