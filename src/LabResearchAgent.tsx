@@ -240,7 +240,9 @@ export default function LabResearchAgent() {
   const [report, setReport] = useState<any>(null);
 
   // New API State
-  const [pubMedResults, setPubMedResults] = useState<any[]>([]);
+  const [pubMedResults, setPubMedResults] = useState<any[]>([]); // Deprecated, replaced by evidencePool but kept for now
+  const [evidencePool, setEvidencePool] = useState<any[]>([]);
+  const [topicSaturation, setTopicSaturation] = useState<any>(null); // { saturation: string, justification: string }
   const [loadingPubMed, setLoadingPubMed] = useState(false);
   const [clinicalTrials, setClinicalTrials] = useState<any[]>([]);
   const [loadingTrials, setLoadingTrials] = useState(false);
@@ -257,6 +259,8 @@ export default function LabResearchAgent() {
     setAnalysis(p.analysis || { col1: '', col2: '', result: null, interpretation: '' });
     setReport(p.report || null);
     setPubMedResults(p.pubMedResults || []);
+    setEvidencePool(p.evidencePool || []);
+    setTopicSaturation(p.topicSaturation || null);
     setClinicalTrials(p.clinicalTrials || []);
     setLiteratureData(p.literatureData || []);
     setCurrentStep(p.currentStep || 1);
@@ -273,6 +277,8 @@ export default function LabResearchAgent() {
     setAnalysis({ col1: '', col2: '', result: null, interpretation: '' });
     setReport(null);
     setPubMedResults([]);
+    setEvidencePool([]);
+    setTopicSaturation(null);
     setClinicalTrials([]);
     setLiteratureData([]);
     setCurrentStep(1);
@@ -357,7 +363,7 @@ export default function LabResearchAgent() {
       const newProj = {
         id: projectId,
         updatedAt: Date.now(),
-        currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report, pubMedResults, clinicalTrials, literatureData
+        currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report, pubMedResults, evidencePool, topicSaturation, clinicalTrials, literatureData
       };
       const nextList = [...prev];
       if (idx >= 0) nextList[idx] = newProj;
@@ -366,7 +372,7 @@ export default function LabResearchAgent() {
       mockStorage.setItem('lab_research_projects', JSON.stringify(nextList));
       return nextList;
     });
-  }, [currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report, projectId]);
+  }, [currentStep, formData, gaps, selectedGap, protocol, csvData, analysis, report, projectId, evidencePool, topicSaturation]);
 
   const handleNext = () => setCurrentStep(prev => Math.min(prev + 1, 5));
   const handlePrev = () => setCurrentStep(prev => Math.max(prev - 1, 1));
@@ -475,53 +481,82 @@ export default function LabResearchAgent() {
     }
   };
 
-  const handleGenerateGaps = async () => {
+  const autoFetchAndAnalyzeLiterature = async () => {
     if (!formData.topic || !formData.population) return setError("Please fill out all fields.");
     setError('');
     setLoading(true);
     try {
-      let pubMedContext = "";
+      // 1. Fetch from backend API
+      let docs: any[] = [];
       try {
-        setLoadingPubMed(true);
-        const searchRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(formData.topic)}&retmode=json&retmax=5`);
+        setLoadingPubMed(true); // Reusing this for general literature loading state
+        const query = `${formData.topic} ${formData.population} ${formData.labSection}`;
+        const searchRes = await fetch(`/api/literature-search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
         const searchData = await searchRes.json();
-        if (searchData.esearchresult && searchData.esearchresult.idlist.length > 0) {
-          const ids = searchData.esearchresult.idlist.join(',');
-          const summaryRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
-          const summaryData = await summaryRes.json();
-          const docs = searchData.esearchresult.idlist.map((id: string) => summaryData.result[id]);
-          setPubMedResults(docs);
-          
-          pubMedContext = docs.map((d: any) => `- ${d.title} (${d.pubdate})`).join('\n');
+        if (searchData.results && searchData.results.length > 0) {
+          docs = searchData.results;
+          setEvidencePool(docs);
+        } else {
+          throw new Error("No literature found.");
         }
       } catch (e) {
-        console.warn("Could not fetch PubMed for context", e);
+        console.warn("Could not fetch literature for context", e);
       } finally {
         setLoadingPubMed(false);
       }
 
-      const prompt = `Act as an expert medical laboratory scientist. 
+      const litContext = docs.map((d: any) => `- ${d.title} (${d.pubdate}, ${d.origin})`).join('\n');
+
+      const prompt = `Act as an expert medical laboratory scientist and literature analyst. 
       The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}" populations.
       
-      Here are the titles of some of the most recent publications from PubMed on this topic:
-      ${pubMedContext || 'No recent PubMed data could be fetched. Rely on your general knowledge.'}
+      Here are the titles of the most recent publications fetched from PubMed and OpenAlex on this topic:
+      ${litContext || 'No recent data could be fetched. STOP.'}
       
-      Analyze these recent publications to determine what has already been done, and identify 3 distinct, highly specific, and clinically actionable research gaps that are currently missing from this specific body of literature.
-      Format the output EXACTLY as a JSON array of 3 strings. Do not include markdown formatting for the JSON, just output the raw bracketed array: ["Gap 1...", "Gap 2...", "Gap 3..."]`;
+      CRITICAL RULE: You must never state a finding, statistic, or pooled result unless it is directly present in the provided context/fetched papers. If the evidence pool is insufficient to support a claim, you must state 'Insufficient evidence in fetched literature' rather than fabricating a plausible result.
       
-      const res = await callGemini(prompt, { webSearch: true });
+      First, classify the topic's current state of "Topic Saturation" based ONLY on the fetched literature. Use one of these exact categories: 
+      - "Saturated" (many highly similar recent papers)
+      - "Superficially Crowded" (many papers, but lacking deep clinical utility/differentiation)
+      - "Strategically Occupied" (a few high-quality foundational papers exist, but distinct niches remain)
+      - "Open" (very few or no relevant papers found).
+      Provide a brief 1-2 sentence justification for this classification based on the fetched titles.
+      
+      Second, identify 3 distinct, highly specific, and clinically actionable research gaps that are currently missing from this specific body of literature.
+      
+      Format the output EXACTLY as a JSON object:
+      {
+        "saturation": "Saturated | Superficially Crowded | Strategically Occupied | Open",
+        "justification": "...",
+        "gaps": ["Gap 1...", "Gap 2...", "Gap 3..."]
+      }
+      Do not include markdown formatting for the JSON, just output the raw JSON object.`;
+      
+      const res = await callGemini(prompt, { webSearch: false, highThinking: true }); // No web search, rely strictly on context
       const cleanRes = res.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsedGaps = JSON.parse(cleanRes);
-      if (Array.isArray(parsedGaps)) {
-        setGaps(parsedGaps);
+      const parsed = JSON.parse(cleanRes);
+      
+      if (parsed.gaps && Array.isArray(parsed.gaps)) {
+        setGaps(parsed.gaps);
+        setTopicSaturation({ saturation: parsed.saturation, justification: parsed.justification });
       } else {
         throw new Error("Invalid format returned by AI.");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to generate gaps. Try again.");
+      setError(err.message || "Failed to analyze literature. Try again.");
     } finally {
       setLoading(false);
+      setCurrentStep(2); // Move to step 2 after fetching and analyzing
     }
+  };
+
+  const handleNextPhase1 = () => {
+    // Instead of just going to step 2, we fetch and analyze
+    autoFetchAndAnalyzeLiterature();
   };
 
   const handleGenerateProtocol = async () => {
@@ -548,14 +583,17 @@ export default function LabResearchAgent() {
       }
 
       const prompt = `Write a brief study protocol for this research gap: "${selectedGap}". 
+      The study type is "${formData.studyType}".
       
       Here are some real-world clinical trials currently registered for this topic to use as a baseline for how others have structured their studies:
       ${trialsContext || 'No recent clinical trials found. Use standard protocol design.'}
 
+      CRITICAL RULE: You must not fabricate trial results, prior findings, or statistics. Base all design on standard scientific methodology and the provided context.
+
       Include:
       1. Primary Objective
       2. Inclusion/Exclusion Criteria (inspired by how real clinical trials structure them)
-      3. Minimum Sample Size estimation approach (just the logic, no complex math)
+      3. Minimum Sample Size estimation approach (just the logic, no complex math). If this is a Diagnostic Accuracy study, explicitly define assumptions for disease prevalence, target sensitivity, target specificity, and precision.
       4. Variables to collect.
       
       AT THE VERY END, on a new line, write exactly:
@@ -608,7 +646,9 @@ export default function LabResearchAgent() {
       if (t1 === 'categorical' && t2 === 'categorical') {
         statResult = chiSquare(vals1, vals2);
         if (!statResult.valid) throw new Error(statResult.msg || "Invalid data for Chi-Square");
-        aiPrompt = `I ran a Chi-Square test to compare ${analysis.col1} and ${analysis.col2}. The test statistic was ${statResult.stat.toFixed(2)}, degrees of freedom: ${statResult.df}, p-value: ${statResult.p.toFixed(4)}. Write a plain English, academic interpretation of these results for a lab medicine paper. Be concise.`;
+        aiPrompt = `I ran a Chi-Square test to compare ${analysis.col1} and ${analysis.col2}. The test statistic was ${statResult.stat.toFixed(2)}, degrees of freedom: ${statResult.df}, p-value: ${statResult.p.toFixed(4)}. 
+        ${formData.studyType === 'Diagnostic Accuracy' ? 'Since this is a Diagnostic Accuracy study, please interpret these categorical results in terms of likely Sensitivity, Specificity, Positive Predictive Value, and Negative Predictive Value if applicable, considering the statistical significance (small-n adjustments if n < 50).' : ''}
+        Write a plain English, academic interpretation of these results for a lab medicine paper. Be concise.`;
       } 
       else if ((t1 === 'numeric' && t2 === 'categorical') || (t2 === 'numeric' && t1 === 'categorical')) {
         const numVals = t1 === 'numeric' ? vals1 : vals2;
@@ -623,6 +663,7 @@ export default function LabResearchAgent() {
         Group 1 (${statResult.g1.name}): Mean ${statResult.g1.mean.toFixed(2)} (SD ${statResult.g1.std.toFixed(2)}, n=${statResult.g1.n}).
         Group 2 (${statResult.g2.name}): Mean ${statResult.g2.mean.toFixed(2)} (SD ${statResult.g2.std.toFixed(2)}, n=${statResult.g2.n}).
         T-statistic: ${statResult.stat.toFixed(2)}, p-value: ${statResult.p.toFixed(4)}. 
+        ${formData.studyType === 'Diagnostic Accuracy' ? 'Since this is a Diagnostic Accuracy study, discuss how this continuous biomarker distribution implies discriminative capability (e.g., predicted ROC AUC performance and optimal cutoff logic) between the target condition groups.' : ''}
         Write a plain English, academic interpretation for a lab medicine paper. State whether the difference is statistically significant (assume alpha=0.05).`;
       } else {
         throw new Error("Please select one categorical and one numeric column (T-Test) or two categorical columns (Chi-Square).");
@@ -646,6 +687,8 @@ export default function LabResearchAgent() {
       const parts = ['Introduction', 'Methods', 'Results', 'Discussion', 'Conclusion', 'References'];
       let manuscript: any = {};
       
+      const litContext = evidencePool.map((d: any) => `- ${d.title} (${d.pubdate}) [Source: ${d.origin}]`).join('\n');
+
       const baseContext = isLitReview 
         ? `Topic: ${formData.topic}. Study Type: Systematic Review / Meta-Analysis. 
            We fetched ${literatureData.length} papers from academic databases.
@@ -660,11 +703,18 @@ export default function LabResearchAgent() {
         Write the **${part}** section of the manuscript. Keep it strictly to the ${part} section, use an academic tone, and make it around 150-250 words. Do not add titles or markdown headings for the section name itself.`;
         
         if (part !== 'References') {
-          prompt += ` Include realistic in-text academic citations (e.g., [1], [2]) to foundational or highly relevant literature from your training data where appropriate.`;
+          prompt += ` CRITICAL RULE: Never state a prior finding, statistic, or pooled result unless you are referencing the fetched evidence pool. 
+          Fetched Evidence Pool Titles:
+          ${litContext}
+          Include realistic in-text academic citations (e.g., [1], [2]) that correspond ONLY to the titles in the fetched evidence pool.`;
         } else {
           prompt = `You are writing a lab medicine manuscript. 
-          Based on this context: "${baseContext}"
-          Write the **References** section of the manuscript. Provide a numbered list of real, peer-reviewed academic references that relate to this topic and match the citations you just generated. Do not invent fake DOIs or authors; rely strictly on actual scientific literature from your knowledge base. Do not add titles or markdown headings for the section name itself.`;
+          Write the **References** section of the manuscript. 
+          CRITICAL RULE: You MUST ONLY include references from the following fetched evidence pool. Do NOT invent fake DOIs or authors, and do not use outside knowledge. If the pool is small, only list what is there.
+          Fetched Evidence Pool:
+          ${litContext}
+          
+          Provide a numbered list. Do not add titles or markdown headings for the section name itself.`;
         }
         
         const res = await callGemini(prompt, { highThinking: true });
@@ -847,7 +897,7 @@ export default function LabResearchAgent() {
                   </SectionCard>
                 </div>
                 <div className="flex justify-end pt-4">
-                  <PrimaryButton onClick={handleNext} icon={ArrowRight}>Proceed to Literature Search</PrimaryButton>
+                  <PrimaryButton onClick={handleNextPhase1} loading={loading} icon={ArrowRight}>Proceed to Literature Search</PrimaryButton>
                 </div>
               </motion.div>
             )}
@@ -861,29 +911,40 @@ export default function LabResearchAgent() {
                     <h2 className="text-4xl font-serif font-bold text-[var(--text-primary)]">Literature Review</h2>
                     <p className="text-[var(--text-secondary)] mt-2">Identify high-impact research gaps using AI grounded in recent literature.</p>
                   </div>
-                  <PrimaryButton onClick={handleGenerateGaps} loading={loading} icon={Search}>Generate Novel Gaps</PrimaryButton>
+                  <PrimaryButton onClick={autoFetchAndAnalyzeLiterature} loading={loading} icon={Search}>Regenerate Analysis</PrimaryButton>
                 </div>
                 
                 {gaps.length > 0 ? (
                   <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                    <div className="xl:col-span-2 space-y-4">
-                      {gaps.map((gap, idx) => (
-                        <motion.div 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: idx * 0.1 }}
-                          key={idx} 
-                          onClick={() => setSelectedGap(gap)}
-                          className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
-                        >
-                          <div className="flex gap-4">
-                            <div className="pt-1 shrink-0">
-                              <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                    <div className="xl:col-span-2 space-y-6">
+                      
+                      {topicSaturation && (
+                        <div className="p-6 rounded-2xl border-l-4 border-[var(--accent-secondary)] bg-[var(--bg-app)]">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-[var(--accent-secondary)] mb-2">Topic Saturation: {topicSaturation.saturation}</h4>
+                          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{topicSaturation.justification}</p>
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-bold text-[var(--text-primary)] mb-2">Identified Gaps (Select one to proceed):</h4>
+                        {gaps.map((gap, idx) => (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.1 }}
+                            key={idx} 
+                            onClick={() => setSelectedGap(gap)}
+                            className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
+                          >
+                            <div className="flex gap-4">
+                              <div className="pt-1 shrink-0">
+                                <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                              </div>
+                              <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap}</p>
                             </div>
-                            <p className={`text-base leading-relaxed font-medium ${selectedGap === gap ? 'text-[var(--accent-primary-light)] dark:text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>{gap}</p>
-                          </div>
-                        </motion.div>
-                      ))}
+                          </motion.div>
+                        ))}
+                      </div>
                       
                       <div className="mt-8 flex justify-between pt-8 border-t border-[var(--border-color)]">
                         <SecondaryButton onClick={handlePrev}>Back</SecondaryButton>
@@ -892,16 +953,16 @@ export default function LabResearchAgent() {
                     </div>
 
                     <div className="xl:col-span-1">
-                      <SectionCard title="PubMed Search" subtitle="Live Reference Integration" className="!p-5 bg-[var(--bg-app)]">
-                        <p className="text-xs text-[var(--text-secondary)] mb-4">Query the NIH database for context on this topic.</p>
-                        <PrimaryButton className="w-full mb-4" onClick={handleSearchPubMed} loading={loadingPubMed} icon={Search}>Search PubMed</PrimaryButton>
+                      <SectionCard title="Evidence Pool" subtitle="Fetched Literature" className="!p-5 bg-[var(--bg-app)]">
+                        <p className="text-xs text-[var(--text-secondary)] mb-4">These papers were automatically fetched to ground the gap analysis.</p>
                         
-                        <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                          {pubMedResults.map((doc: any, i: number) => (
-                            <div key={i} className="p-3 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl">
-                              <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)]">{doc.title}</h4>
+                        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                          {evidencePool.map((doc: any, i: number) => (
+                            <div key={i} className="p-3 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl relative">
+                              <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-color)]">{doc.origin}</span>
+                              <h4 className="text-xs font-bold mb-1 leading-tight text-[var(--text-primary)] pr-12">{doc.title}</h4>
                               <p className="text-[10px] text-[var(--text-muted)] mb-2 uppercase tracking-wide">{doc.pubdate} • {doc.source}</p>
-                              <a href={`https://pubmed.ncbi.nlm.nih.gov/${doc.uid}`} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-[var(--accent-secondary)] hover:underline block">View on PubMed &rarr;</a>
+                              {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" className="text-[11px] font-bold text-[var(--accent-secondary)] hover:underline block">View Paper &rarr;</a>}
                             </div>
                           ))}
                         </div>
@@ -910,8 +971,17 @@ export default function LabResearchAgent() {
                   </div>
                 ) : (
                   <SectionCard className="text-center py-20 bg-transparent border-dashed">
-                    <BookOpen className="w-16 h-16 mx-auto mb-6 opacity-20 text-[var(--text-primary)]" />
-                    <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">Click the button above to scan recent scientific literature and generate actionable research hypotheses.</p>
+                    {loading ? (
+                       <div className="flex flex-col items-center justify-center">
+                         <Loader2 className="w-12 h-12 animate-spin text-[var(--accent-primary)] mb-4" />
+                         <p className="text-[var(--text-secondary)]">Fetching literature and analyzing gaps...</p>
+                       </div>
+                    ) : (
+                       <>
+                        <BookOpen className="w-16 h-16 mx-auto mb-6 opacity-20 text-[var(--text-primary)]" />
+                        <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">Click "Regenerate Analysis" if the automatic fetch failed or to re-run the synthesis.</p>
+                       </>
+                    )}
                   </SectionCard>
                 )}
               </motion.div>

@@ -80,6 +80,70 @@ async function startServer() {
     }
   });
 
+  app.post("/api/literature-search", async (req, res) => {
+    try {
+      const { query } = req.body;
+      if (!query) throw new Error("Query is required");
+
+      const [pubmedRes, oaRes] = await Promise.allSettled([
+        fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=10`),
+        fetch(`https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=10`)
+      ]);
+
+      let docs: any[] = [];
+
+      if (pubmedRes.status === 'fulfilled') {
+        const searchData = await pubmedRes.value.json();
+        if (searchData.esearchresult?.idlist?.length > 0) {
+          const ids = searchData.esearchresult.idlist.join(',');
+          const summaryRes = await fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids}&retmode=json`);
+          const summaryData = await summaryRes.json();
+          searchData.esearchresult.idlist.forEach((id: string) => {
+            docs.push({
+              title: summaryData.result[id]?.title,
+              pubdate: summaryData.result[id]?.pubdate || 'Unknown',
+              source: summaryData.result[id]?.source || 'PubMed',
+              uid: id,
+              url: `https://pubmed.ncbi.nlm.nih.gov/${id}`,
+              origin: 'PubMed'
+            });
+          });
+        }
+      }
+
+      if (oaRes.status === 'fulfilled') {
+        const oaData = await oaRes.value.json();
+        (oaData.results || []).forEach((w: any) => {
+          docs.push({
+            title: w.display_name,
+            pubdate: w.publication_date || w.publication_year || 'Unknown',
+            source: w.host_venue?.display_name || w.primary_location?.source?.display_name || 'OpenAlex',
+            uid: w.id,
+            url: w.id,
+            origin: 'OpenAlex'
+          });
+        });
+      }
+
+      // Deduplicate roughly by title
+      const uniqueDocs: any[] = [];
+      const seenTitles = new Set();
+      for (const d of docs) {
+        if (!d.title) continue;
+        const normalizedTitle = d.title.toLowerCase().trim();
+        if (!seenTitles.has(normalizedTitle)) {
+          seenTitles.add(normalizedTitle);
+          uniqueDocs.push(d);
+        }
+      }
+
+      res.json({ results: uniqueDocs.slice(0, 15) }); // Return top 15 combined
+    } catch (error: any) {
+      console.error("Literature Search Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
