@@ -595,7 +595,7 @@ export default function LabResearchAgent() {
     setLoading(true);
     try {
       const includedDocs = evidencePool.filter(d => d.included);
-      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract?.substring(0, 500)}`).join('\n\n');
+      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract}`).join('\n\n');
 
       const prompt = `Act as an expert medical laboratory scientist and literature analyst. 
       The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}".
@@ -604,14 +604,15 @@ export default function LabResearchAgent() {
       ${litContext}
       
       CRITICAL RULE 1: You must never state a finding, statistic, or pooled result unless it is directly present in the provided abstract text.
-      CRITICAL RULE 2: The gaps you identify MUST NOT be generated from your general knowledge. They MUST be derived STRICTLY from the provided abstracts. You can only identify a gap if the authors of the provided papers explicitly state a limitation, mention a direction for future research, or if you identify a direct conflict between two provided papers. If the provided literature does not mention a gap, do NOT invent one.
+      CRITICAL RULE 2: The gaps you identify MUST NOT be generated from your general knowledge. They MUST be derived STRICTLY from the provided abstracts. You can only identify a gap if the authors of the provided papers explicitly state a limitation, mention a direction for future research, or if you identify a direct conflict between two provided papers.
+      CRITICAL RULE 3: If a gap cannot be traced to specific text in an Included paper, you MUST NOT generate it. If the provided literature does not mention any gaps, return an empty array for gaps and state explicitly in the justification that no clear gap was found in the current evidence pool.
       
       First, classify the topic's current state of "Topic Saturation" based ONLY on the fetched literature. Categories: Saturated, Superficially Crowded, Strategically Occupied, Open. Provide a 1-2 sentence justification.
       
       Second, identify up to 3 distinct, highly specific, and clinically actionable research gaps derived DIRECTLY from the literature pool above.
       CRITICAL METHODOLOGY: You MUST organize your gap analysis by overarching theme (e.g., "diagnostic methods", "patient population factors", "reported limitations") and perform a cross-study comparison. Compare and contrast across studies within each theme, noting where studies agree or conflict.
       
-      For each gap, you MUST provide explicit provenance tracking: cite the UID of the paper(s) that support this gap, and extract a brief verbatim quote from their abstract that explicitly points to this limitation or future need.
+      For each gap, you MUST explicitly name which Included paper(s) it is derived from (using the Title and/or ID) in the text. You MUST also provide explicit provenance tracking: cite the UID of the paper(s) that support this gap, and extract a brief verbatim quote from their abstract that explicitly points to this limitation or future need.
       
       Format EXACTLY as a JSON object:
       {
@@ -619,7 +620,7 @@ export default function LabResearchAgent() {
         "justification": "...",
         "gaps": [
           {
-            "text": "Gap description and thematic cross-study synthesis...",
+            "text": "Gap description explicitly naming the source paper(s) and thematic cross-study synthesis...",
             "provenance": [
               { "uid": "UID here", "quote": "Verbatim quote from abstract supporting this limitation/gap..." }
             ]
