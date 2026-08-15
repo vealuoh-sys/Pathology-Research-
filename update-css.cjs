@@ -1,12 +1,8 @@
-@import "tailwindcss";
+const fs = require('fs');
 
-@theme {
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
-}
+const css = fs.readFileSync('src/index.css', 'utf-8');
 
-@layer base {
-  :root {
+const newRootAndDark = `:root {
     --bg-app: #f4fbf8;
     --bg-paper: #ffffff;
     --bg-paper-hover: #eff5f3;
@@ -87,32 +83,13 @@
     --sidebar-text-muted: #bec9c6;
     --sidebar-hover: #161d1c;
     --sidebar-active: #81d5cb;
-  }
-}
+  }`;
 
-body {
-  background-color: var(--bg-app);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
+// Use regex to replace the old contents inside @layer base {...}
+// We match from `:root {` down to the closing brace of `.dark { ... }`
+const regex = /:root\s*\{[\s\S]*?\.dark\s*\{[\s\S]*?\}\s*\n/m;
+const newCss = css.replace(regex, newRootAndDark + '\n');
 
-h1, h2, h3, h4, h5, h6, .font-serif {
-  font-family: var(--font-serif);
-}
+fs.writeFileSync('src/index.css', newCss);
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+console.log("Updated src/index.css!");
