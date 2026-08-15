@@ -9,6 +9,20 @@ import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import jStat from 'jstat';
 
+import { Button } from "@/components/ui/button";
+import { Card as ShadCard, CardContent as ShadCardContent, CardHeader as ShadCardHeader, CardTitle as ShadCardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge as ShadBadge } from "@/components/ui/badge";
+import { Progress as ShadProgress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card, Metric, Text, ProgressBar, Badge, BarList, List, ListItem, Tracker } from "@/components/tremor";
+
+
 // API Helper
 async function callGemini(prompt: string, opts: { system?: string, webSearch?: boolean, highThinking?: boolean } = {}) {
   const res = await fetch('/api/generate', {
@@ -1180,21 +1194,21 @@ export default function LabResearchAgent() {
                     <div className="xl:col-span-1">
                       <SectionCard title="ASReview Screening" subtitle="Fetched Literature" className="!p-5 bg-[var(--bg-app)]">
                         {screeningCounts && (
-                          <div className="mb-4 bg-[var(--bg-paper)] p-3 rounded-xl border border-[var(--border-color)]">
-                            <h4 className="text-[10px] uppercase font-bold text-[var(--text-muted)] mb-2">Screening Funnel</h4>
-                            <div className="flex justify-between items-center text-xs py-1">
-                              <span className="text-[var(--text-primary)]">Initial Hits:</span>
-                              <span className="font-mono text-[var(--accent-primary)]">{screeningCounts.initial}</span>
+                          <Card className="mb-4 !p-4 !shadow-none">
+                            <Text className="text-[10px] uppercase font-bold mb-4 tracking-wider">Screening Funnel</Text>
+                            <div className="space-y-4">
+                              <ProgressBar 
+                                value={(screeningCounts.deduplicated / screeningCounts.initial) * 100 || 0} 
+                                label="Deduplicated" 
+                                subLabel={`${screeningCounts.deduplicated} / ${screeningCounts.initial}`} 
+                              />
+                              <ProgressBar 
+                                value={(screeningCounts.included / screeningCounts.screened) * 100 || 0} 
+                                label="Included" 
+                                subLabel={`${screeningCounts.included} / ${screeningCounts.screened}`} 
+                              />
                             </div>
-                            <div className="flex justify-between items-center text-xs py-1">
-                              <span className="text-[var(--text-primary)]">Deduplicated:</span>
-                              <span className="font-mono text-[var(--accent-primary)]">{screeningCounts.deduplicated}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs py-1">
-                              <span className="text-[var(--text-primary)]">Included:</span>
-                              <span className="font-mono text-[var(--accent-primary)]">{screeningCounts.included} / {screeningCounts.screened}</span>
-                            </div>
-                          </div>
+                          </Card>
                         )}
                         <p className="text-xs text-[var(--text-secondary)] mb-4">Click to toggle inclusion.</p>
                         
@@ -1218,9 +1232,9 @@ export default function LabResearchAgent() {
                               <div className="flex gap-2 items-center mb-1">
                                 <span className="text-[9px] text-[var(--text-muted)]">{doc.pubdate}</span>
                                 {doc.citations != null && (
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${doc.citations > 50 ? 'bg-orange-500/20 text-orange-400' : 'bg-[var(--bg-app)] text-[var(--text-muted)]'}`}>
+                                  <Badge color={doc.citations > 50 ? "warm" : "neutral"} className="!text-[9px]">
                                     {doc.citations} citations
-                                  </span>
+                                  </Badge>
                                 )}
                               </div>
                               <p className="text-[10px] text-[var(--text-muted)] mb-2 italic">"{doc.reason}"</p>
@@ -1659,7 +1673,7 @@ export default function LabResearchAgent() {
                     {!isRefining && report && (
                       <div className="bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-2xl p-6 mb-8 shadow-lg">
                         <h3 className="text-lg font-bold text-[var(--text-primary)] mb-4">Pre-Finalization Checklist</h3>
-                        <div className="space-y-3">
+                        <List className="space-y-0">
                           {[
                             { key: 'citationsVerified', label: 'Citations verified against CrossRef/DOI' },
                             { key: 'methodologyDocumented', label: 'Search methodology documented (databases, dates, terms)' },
@@ -1669,18 +1683,17 @@ export default function LabResearchAgent() {
                             { key: 'stardAdherence', label: 'Protocol designed adhering to STARD reporting guidelines' },
                             { key: 'biasAcknowledged', label: 'Plausible sources of bias/confounding explicitly addressed' }
                           ].map(item => (
-                            <label key={item.key} className="flex items-center gap-3 cursor-pointer group">
-                              <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${preFinalChecklist[item.key as keyof typeof preFinalChecklist] ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)] text-white' : 'border-[var(--text-muted)] group-hover:border-[var(--text-primary)]'}`}>
-                                {preFinalChecklist[item.key as keyof typeof preFinalChecklist] && <CheckCircle className="w-3 h-3" />}
-                              </div>
-                              <span className="text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">{item.label}</span>
-                              <input type="checkbox" className="hidden" 
-                                checked={preFinalChecklist[item.key as keyof typeof preFinalChecklist]} 
-                                onChange={(e) => setPreFinalChecklist({...preFinalChecklist, [item.key]: e.target.checked})} 
-                              />
-                            </label>
+                            <ListItem key={item.key}>
+                              <label className="flex items-center gap-3 cursor-pointer group w-full">
+                                <Checkbox 
+                                  checked={preFinalChecklist[item.key as keyof typeof preFinalChecklist]} 
+                                  onCheckedChange={(checked) => setPreFinalChecklist({...preFinalChecklist, [item.key]: checked === true})} 
+                                />
+                                <span className="text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">{item.label}</span>
+                              </label>
+                            </ListItem>
                           ))}
-                        </div>
+                        </List>
                       </div>
                     )}
 
