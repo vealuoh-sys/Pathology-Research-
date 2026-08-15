@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { generateText, generateObject } from "ai";
-import { google } from "@ai-sdk/google";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { groq as groqProvider } from "@ai-sdk/groq";
 import { GoogleGenAI } from "@google/genai";
 import express from "express";
@@ -21,15 +21,16 @@ async function startServer() {
       const groqKey = process.env.GROQ_API_KEY;
       
       let providerModel;
+      let isGroq = false;
       
       // Select Provider and Model
       if (geminiKey && (webSearch || highThinking || !groqKey)) {
-        let modelName = "gemini-2.5-flash"; // Fixed to valid models
+        let modelName = "gemini-3.5-flash"; // Fixed to valid models
         
         if (webSearch) {
-          modelName = "gemini-2.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
+          modelName = "gemini-3.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
         } else if (highThinking) {
-          modelName = "gemini-2.5-pro"; // Use 2.5 pro for "high thinking"
+          modelName = "gemini-3.1-pro-preview"; // Use 2.5 pro for "high thinking"
         }
         
         // Validate against SDK's supported models
@@ -45,71 +46,110 @@ async function startServer() {
         }
         
         console.log(`Trying Gemini API (${modelName})...`);
-        providerModel = google(modelName);
+        const googleProvider = createGoogleGenerativeAI({ apiKey: geminiKey });
+        providerModel = googleProvider(modelName);
       } else {
         if (!groqKey) {
           throw new Error("GROQ_API_KEY environment variable is required if Gemini is not configured.");
         }
         console.log("Processing request with GROQ_API_KEY ending in:", groqKey.slice(-4));
         providerModel = groqProvider("llama-3.3-70b-versatile");
+        isGroq = true;
       }
       
       let responseText = "";
       
-      // Use generateObject for specific schemas to enforce Zod constraints
-      if (schemaId === 'gap-synthesis') {
-        const { object } = await generateObject({
-          model: providerModel,
-          system,
-          prompt,
-          schema: z.object({
-            saturation: z.string(),
-            justification: z.string(),
-            gaps: z.array(z.object({
-              text: z.string(),
-              provenance: z.array(z.object({
+      async function attemptGeneration(currentProviderModel, currentIsGroq) {
+        let textResult = "";
+        if (currentIsGroq && schemaId) {
+          let schemaInstruction = "\n\nIMPORTANT: You must respond ONLY with raw JSON. Do not use markdown blocks. Return JSON matching this structure:\n";
+          if (schemaId === 'gap-synthesis') {
+            schemaInstruction += "{ saturation: string, justification: string, gaps: [{ text: string, provenance: [{uid: string, quote: string}] }] }";
+          } else if (schemaId === 'screening-funnel') {
+            schemaInstruction += "[{ uid: string, included: boolean, reason: string }]";
+          } else if (schemaId === 'refinement-pass') {
+            schemaInstruction += "[{ issue: string, quote: string, type: 'citation'|'methodology'|'criteria'|'limitation'|'bias'|'other', severity: 'high'|'medium'|'low', section: string }]";
+          }
+          
+          const { text } = await generateText({
+            model: currentProviderModel,
+            system,
+            prompt: prompt + schemaInstruction
+          });
+          
+          textResult = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        } else {
+          // Use generateObject for specific schemas to enforce Zod constraints
+          if (schemaId === 'gap-synthesis') {
+            const { object } = await generateObject({
+              model: currentProviderModel,
+              system,
+              prompt,
+              schema: z.object({
+                saturation: z.string(),
+                justification: z.string(),
+                gaps: z.array(z.object({
+                  text: z.string(),
+                  provenance: z.array(z.object({
+                    uid: z.string(),
+                    quote: z.string()
+                  }))
+                }))
+              })
+            });
+            textResult = JSON.stringify(object);
+          } else if (schemaId === 'screening-funnel') {
+            const { object } = await generateObject({
+              model: currentProviderModel,
+              system,
+              prompt,
+              schema: z.array(z.object({
                 uid: z.string(),
-                quote: z.string()
+                included: z.boolean(),
+                reason: z.string()
               }))
-            }))
-          })
-        });
-        responseText = JSON.stringify(object);
-      } else if (schemaId === 'screening-funnel') {
-        const { object } = await generateObject({
-          model: providerModel,
-          system,
-          prompt,
-          schema: z.array(z.object({
-            uid: z.string(),
-            included: z.boolean(),
-            reason: z.string()
-          }))
-        });
-        responseText = JSON.stringify(object);
-      } else if (schemaId === 'refinement-pass') {
-        const { object } = await generateObject({
-          model: providerModel,
-          system,
-          prompt,
-          schema: z.array(z.object({
-            issue: z.string(),
-            quote: z.string(),
-            type: z.enum(['citation', 'methodology', 'criteria', 'limitation', 'bias', 'other']),
-            severity: z.enum(['high', 'medium', 'low']),
-            section: z.string()
-          }))
-        });
-        responseText = JSON.stringify(object);
-      } else {
-        // Standard text generation
-        const { text } = await generateText({
-          model: providerModel,
-          system,
-          prompt
-        });
-        responseText = text;
+            });
+            textResult = JSON.stringify(object);
+          } else if (schemaId === 'refinement-pass') {
+            const { object } = await generateObject({
+              model: currentProviderModel,
+              system,
+              prompt,
+              schema: z.array(z.object({
+                issue: z.string(),
+                quote: z.string(),
+                type: z.enum(['citation', 'methodology', 'criteria', 'limitation', 'bias', 'other']),
+                severity: z.enum(['high', 'medium', 'low']),
+                section: z.string()
+              }))
+            });
+            textResult = JSON.stringify(object);
+          } else {
+            // Standard text generation
+            const { text } = await generateText({
+              model: currentProviderModel,
+              system,
+              prompt
+            });
+            textResult = text;
+          }
+        }
+        return textResult;
       }
+
+      try {
+        responseText = await attemptGeneration(providerModel, isGroq);
+      } catch (e) {
+        console.log(`[Primary Provider Error]: ${e.message}`);
+        if (!isGroq && groqKey) {
+           console.log(`[Fallback] Primary provider failed (likely quota). Routing request to Groq...`);
+           const fallbackModel = groqProvider("llama-3.3-70b-versatile");
+           responseText = await attemptGeneration(fallbackModel, true);
+        } else {
+           throw e;
+        }
+      }
+
       
       return res.json({ text: responseText });
     } catch (error: any) {
