@@ -557,7 +557,7 @@ export default function LabResearchAgent() {
           docs = searchData.results;
           counts.initial = searchData.counts?.initial || docs.length;
           counts.deduplicated = searchData.counts?.deduplicated || docs.length;
-          counts.screened = docs.length;
+          counts.screened = counts.deduplicated;
         } else {
           throw new Error("No literature found.");
         }
@@ -758,7 +758,7 @@ export default function LabResearchAgent() {
       2. Explicit Inclusion/Exclusion Criteria (inspired by how real clinical trials structure them)
       3. Minimum Sample Size estimation approach (just the logic, no complex math). Define assumptions for disease prevalence, target sensitivity, target specificity, and precision.
       4. Variables to collect.
-      5. Search Strategy Documentation (note that we screened ${evidencePool.length} papers, included ${evidencePool.filter(d=>d.included).length}).
+      5. Search Strategy Documentation (note that we screened ${screeningCounts?.deduplicated || evidencePool.length} papers, included ${evidencePool.filter(d=>d.included).length}).
       
       AT THE VERY END, on a new line, write exactly:
       [CSV_TEMPLATE]
@@ -1251,9 +1251,9 @@ export default function LabResearchAgent() {
                                 subLabel={`${screeningCounts.deduplicated} / ${screeningCounts.initial}`} 
                               />
                               <ProgressBar 
-                                value={(screeningCounts.included / screeningCounts.screened) * 100 || 0} 
+                                value={(screeningCounts.included / screeningCounts.deduplicated) * 100 || 0} 
                                 label="Included" 
-                                subLabel={`${screeningCounts.included} / ${screeningCounts.screened}`} 
+                                subLabel={`${screeningCounts.included} / ${screeningCounts.deduplicated}`} 
                               />
                             </div>
                           </Card>
