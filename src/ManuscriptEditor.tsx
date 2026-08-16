@@ -75,7 +75,7 @@ export function ManuscriptEditor({ initialContent, onChange, flags = [] }: any) 
     <div className="relative w-full max-w-full overflow-hidden prose prose-sm dark:prose-invert">
       <EditorRoot>
         <EditorContent
-          initialContent={content}
+          initialContent={content as any}
           extensions={extensions}
           onUpdate={({ editor }: any) => {
             onChange(editor.getHTML());

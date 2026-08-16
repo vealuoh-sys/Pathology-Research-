@@ -252,8 +252,8 @@ export default function LabResearchAgent() {
     studyType: 'Method Comparison',
     population: ''
   });
-  const [gaps, setGaps] = useState<string[]>([]);
-  const [selectedGap, setSelectedGap] = useState('');
+  const [gaps, setGaps] = useState<any[]>([]);
+  const [selectedGap, setSelectedGap] = useState<any>("");
   const [protocol, setProtocol] = useState({ text: '', template: '' });
   const [csvData, setCsvData] = useState('');
   const [analysis, setAnalysis] = useState<any>({ col1: '', col2: '', result: null, interpretation: '' });

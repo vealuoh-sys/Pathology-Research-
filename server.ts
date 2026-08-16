@@ -25,12 +25,12 @@ async function startServer() {
       
       // Select Provider and Model
       if (geminiKey && (webSearch || highThinking || !groqKey)) {
-        let modelName = "gemini-3.5-flash"; // Fixed to valid models
+        let modelName = "gemini-2.5-flash"; // Fixed to valid models
         
         if (webSearch) {
-          modelName = "gemini-3.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
+          modelName = "gemini-2.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
         } else if (highThinking) {
-          modelName = "gemini-3.1-pro-preview"; // Use 2.5 pro for "high thinking"
+          modelName = "gemini-2.5-pro"; // Use 2.5 pro for "high thinking"
         }
         
         // Validate against SDK's supported models
@@ -152,8 +152,11 @@ async function startServer() {
 
       try {
         responseText = await attemptGeneration(providerModel, isGroq);
-      } catch (e) {
+      } catch (e: any) {
         console.log(`[Primary Provider Error]: ${e.message}`);
+        if (e.message && (e.message.toLowerCase().includes("not found") || e.message.toLowerCase().includes("invalid model"))) {
+            throw new Error("Invalid model name provided: " + e.message);
+        }
         if (!isGroq && groqKey) {
            console.log(`[Fallback] Primary provider failed (likely quota). Routing request to Groq...`);
            const fallbackModel = groqProvider("llama-3.3-70b-versatile");
@@ -183,7 +186,10 @@ async function startServer() {
       if (groqKey) {
         providerModel = groqProvider("llama-3.3-70b-versatile");
       } else {
-        providerModel = google("gemini-3.1-pro-preview");
+        const geminiKey = process.env.GEMINI_API_KEY;
+        if (!geminiKey) throw new Error("GEMINI_API_KEY missing");
+        const googleProvider = createGoogleGenerativeAI({ apiKey: geminiKey });
+        providerModel = googleProvider("gemini-2.5-pro");
       }
       
       const result = streamText({
@@ -192,7 +198,7 @@ async function startServer() {
         system: "You are an expert academic writing assistant helping the user draft and refine a medical research manuscript. Keep additions concise, academic, and directly related to the surrounding text. Do not repeat the prompt. Only output the text that should be inserted."
       });
       
-      result.pipeDataStreamToResponse(res);
+      result.pipeTextStreamToResponse(res);
     } catch (e) {
       console.error(e);
       res.status(500).send(e.message);
