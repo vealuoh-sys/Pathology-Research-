@@ -276,6 +276,7 @@ export default function LabResearchAgent() {
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
 
+  const [screeningProgress, setScreeningProgress] = useState<string>('');
   const [screeningCounts, setScreeningCounts] = useState<{initial: number, deduplicated: number, screened: number, included: number} | null>(null);
   const [preFinalChecklist, setPreFinalChecklist] = useState({
     citationsVerified: false,
@@ -1316,7 +1317,7 @@ export default function LabResearchAgent() {
                     {loading ? (
                        <div className="flex flex-col items-center justify-center">
                          <Loader2 className="w-12 h-12 animate-spin text-[var(--accent-primary)] mb-4" />
-                         <p className="text-[var(--text-secondary)]">Fetching literature and screening based on ASReview principles...</p>
+                         <p className="text-[var(--text-secondary)]">{screeningProgress || "Fetching literature and screening based on ASReview principles..."}</p>
                        </div>
                     ) : (
                        <>
