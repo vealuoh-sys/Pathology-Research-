@@ -1,6 +1,13 @@
+@plugin "@tailwindcss/typography";
 @import "tailwindcss";
 
 @theme {
+  --animate-border-beam: border-beam calc(var(--duration)*1s) infinite linear;
+  @keyframes border-beam {
+    100% {
+      offset-distance: 100%;
+    }
+  }
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Playfair Display", ui-serif, Georgia, serif;
 }

@@ -1,3 +1,4 @@
+import { ManuscriptEditor } from './ManuscriptEditor';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Beaker, Search, FileSpreadsheet, BarChart2, PenTool, CheckCircle, 
@@ -21,6 +22,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, Metric, Text, ProgressBar, Badge, BarList, List, ListItem, Tracker } from "@/components/tremor";
+
+import { NumberTicker } from './components/magicui/number-ticker';
+import { BorderBeam } from './components/magicui/border-beam';
+
 
 
 // API Helper
@@ -1190,7 +1195,7 @@ export default function LabResearchAgent() {
                       )}
 
                       <div className="space-y-4">
-                        <h4 className="text-sm font-bold text-[var(--text-primary)] mb-2">Identified Gaps (Select one to proceed):</h4>
+                        <h4 className="text-sm font-bold text-[var(--text-primary)] mb-2">Identified Gaps (<NumberTicker value={gaps.length} />):</h4>
                         {gaps.map((gap, idx) => (
                           <motion.div 
                             initial={{ opacity: 0, y: 10 }}
@@ -1459,7 +1464,7 @@ export default function LabResearchAgent() {
                            </div>
                            
                            <div className="pt-6 border-t border-[var(--border-color)]">
-                             <h4 className="text-sm font-bold mb-4 uppercase tracking-widest text-[var(--text-muted)]">Sources Retrieved ({literatureData.length})</h4>
+                             <h4 className="text-sm font-bold mb-4 uppercase tracking-widest text-[var(--text-muted)]">Sources Retrieved (<NumberTicker value={literatureData.length} />)</h4>
                              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                                 {literatureData.map((paper: any, i: number) => (
                                   <div key={i} className="p-4 bg-[var(--bg-paper)] border border-[var(--border-color)] rounded-xl flex flex-col gap-2">
@@ -1467,7 +1472,7 @@ export default function LabResearchAgent() {
                                     <div className="text-xs text-[var(--text-muted)] flex gap-4 font-medium">
                                       <span>{paper.year || 'Unknown'}</span>
                                       <span>{paper.authors?.map((a:any)=>a.name).join(', ').substring(0, 100)}{paper.authors?.length > 3 ? ' et al.' : ''}</span>
-                                      {paper.citationCount !== undefined && <span className="font-bold text-[var(--accent-primary)]">{paper.citationCount} Citations</span>}
+                                      {paper.citationCount !== undefined && <span className="font-bold text-[var(--accent-primary)]"><NumberTicker value={paper.citationCount} /> Citations</span>}
                                     </div>
                                   </div>
                                 ))}
@@ -1691,7 +1696,8 @@ export default function LabResearchAgent() {
                         
                         <div className="space-y-4">
                           {refinementFlags.map((flag, idx) => (
-                            <div key={idx} className={`p-4 rounded-xl border transition-all ${flag.resolved ? 'bg-green-900/10 border-green-500/30 opacity-60' : 'bg-[var(--bg-paper)] border-red-500/30'}`}>
+                            <div key={idx} className={`p-4 rounded-xl border transition-all ${flag.resolved ? 'bg-green-900/10 border-green-500/30 opacity-60' : 'bg-[var(--bg-paper)] border-red-500/30 relative overflow-hidden'}`}>
+                              {!flag.resolved && <BorderBeam size={200} duration={12} colorFrom="var(--status-error)" colorTo="transparent" borderWidth={1.5} />}
                               <div className="flex justify-between items-start mb-2">
                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${flag.type.includes('unsupported') ? 'bg-orange-500/20 text-orange-400' : 'bg-red-500/20 text-red-400'}`}>
                                   {flag.type}
@@ -1803,7 +1809,14 @@ export default function LabResearchAgent() {
                               className="w-full h-64 bg-[var(--bg-app)] text-[var(--text-primary)] border border-[var(--accent-primary)] p-4 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]"
                             />
                           ) : (
-                            <MarkdownLite content={report[section] || ''} />
+                            <ManuscriptEditor
+                              initialContent={report[section] || ''}
+                              flags={refinementFlags.filter((f: any) => f.section === section)}
+                              onChange={(newHtml: string) => {
+                                const newReport = { ...report, [section]: newHtml };
+                                setReport(newReport);
+                              }}
+                            />
                           )}
                         </div>
                       ))}

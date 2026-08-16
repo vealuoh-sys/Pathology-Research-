@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateText, generateObject } from "ai";
+import { generateText, generateObject, streamText } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { groq as groqProvider } from "@ai-sdk/groq";
 import { GoogleGenAI } from "@google/genai";
@@ -168,6 +168,34 @@ async function startServer() {
     } catch (error: any) {
       console.error("API Error (Properly surfaced):", error.message || error);
       res.status(500).json({ error: error.message || "Provider call failed" });
+    }
+  });
+
+  
+
+  
+  app.post("/api/generate-style", async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      const groqKey = process.env.GROQ_API_KEY;
+      
+      let providerModel;
+      if (groqKey) {
+        providerModel = groqProvider("llama-3.3-70b-versatile");
+      } else {
+        providerModel = google("gemini-3.1-pro-preview");
+      }
+      
+      const result = streamText({
+        model: providerModel,
+        prompt: prompt,
+        system: "You are an expert academic writing assistant helping the user draft and refine a medical research manuscript. Keep additions concise, academic, and directly related to the surrounding text. Do not repeat the prompt. Only output the text that should be inserted."
+      });
+      
+      result.pipeDataStreamToResponse(res);
+    } catch (e) {
+      console.error(e);
+      res.status(500).send(e.message);
     }
   });
 
