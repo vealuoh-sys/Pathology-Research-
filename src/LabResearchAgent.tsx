@@ -583,37 +583,55 @@ export default function LabResearchAgent() {
         setLoadingPubMed(false);
       }
 
-      const litContext = docs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} | Abstract: ${d.abstract?.substring(0,300)}...`).join('\n');
-
-      const prompt = `Act as an expert systematic review screener. 
-      The user is planning a ${formData.studyType} study on "${formData.topic}" in "${formData.population}" within the "${formData.labSection}" laboratory section.
-      
-      Here are the fetched papers:
-      ${litContext}
-      
-      Screen these papers for relevance to the specific topic, patient population, and laboratory section.
-      Format the output EXACTLY as a JSON array of objects:
-      [
-        {
-          "uid": "ID of the paper",
-          "included": true or false,
-          "reason": "1-line reason for inclusion or exclusion"
+            const BATCH_SIZE = 20;
+      let allParsed: any[] = [];
+      for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+        const batch = docs.slice(i, i + BATCH_SIZE);
+        setScreeningProgress(`Screening papers ${i + 1}-${Math.min(i + BATCH_SIZE, docs.length)} of ${docs.length}...`);
+        const litContext = batch.map((d: any) => `ID: ${d.uid} | Title: ${d.title} | Abstract: ${d.abstract?.substring(0,300)}...`).join('\n');
+        const prompt = `Act as an expert systematic review screener. 
+        The user is planning a ${formData.studyType} study on "${formData.topic}" in "${formData.population}" within the "${formData.labSection}" laboratory section.
+        
+        Here are the fetched papers:
+        ${litContext}
+        
+        Screen these papers for relevance to the specific topic, patient population, and laboratory section.
+        Format the output EXACTLY as a JSON array of objects:
+        [
+          {
+            "uid": "ID of the paper",
+            "included": true or false,
+            "reason": "1-line reason for inclusion or exclusion"
+          }
+        ]
+        Do not include markdown formatting for the JSON.`;
+        
+        try {
+          let res = await callGemini(prompt, { webSearch: false, highThinking: false, schemaId: 'screening-funnel' });
+          res = res.replace(/^\`\`\`(json)?/m, '').replace(/\`\`\`$/m, '').trim();
+          const parsed = JSON.parse(res);
+          if (Array.isArray(parsed)) {
+            allParsed = allParsed.concat(parsed);
+          }
+        } catch (err) {
+          console.warn("Failed to screen batch", i, err);
         }
-      ]
-      Do not include markdown formatting for the JSON.`;
-      
-      const res = await callGemini(prompt, { webSearch: false, highThinking: false, schemaId: 'screening-funnel' });
-      const parsed = JSON.parse(res);
-      
+        
+        // Wait a bit to avoid hitting rate limits too hard
+        if (i + BATCH_SIZE < docs.length) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      setScreeningProgress('');
+
       const screenedDocs = docs.map(d => {
-        const screenResult = parsed.find((p: any) => p.uid === String(d.uid));
+        const screenResult = allParsed.find((p: any) => p.uid === String(d.uid));
         return {
           ...d,
-          included: screenResult ? screenResult.included : true,
-          reason: screenResult ? screenResult.reason : 'Auto-included'
+          included: screenResult ? screenResult.included : false,
+          reason: screenResult ? screenResult.reason : 'Failed to screen - excluded by default'
         };
       });
-
       counts.included = screenedDocs.filter(d => d.included).length;
       setScreeningCounts(counts);
       setEvidencePool(screenedDocs);
@@ -633,13 +651,37 @@ export default function LabResearchAgent() {
     setReviewerFeedback(null);
     try {
       let includedDocs = evidencePool.filter(d => d.included);
-      // Sort by citations if available to prioritize high-impact papers, then cap to avoid token limit
-      includedDocs.sort((a, b) => (b.citations || 0) - (a.citations || 0));
+      
+      // Sort by relevance to topic keywords, then citations
+      const topicWords = formData.topic.toLowerCase().split(' ').filter(w => w.length > 3);
+      includedDocs.sort((a, b) => {
+        let scoreA = 0; let scoreB = 0;
+        const titleA = (a.title || '').toLowerCase();
+        const titleB = (b.title || '').toLowerCase();
+        
+        topicWords.forEach(w => {
+           if (titleA.includes(w)) scoreA += 10;
+           if (titleB.includes(w)) scoreB += 10;
+        });
+        
+        if (a.citations) scoreA += Math.min(a.citations / 5, 20);
+        if (b.citations) scoreB += Math.min(b.citations / 5, 20);
+        
+        return scoreB - scoreA;
+      });
+
       const MAX_PAPERS = 25;
       if (includedDocs.length > MAX_PAPERS) {
         includedDocs = includedDocs.slice(0, MAX_PAPERS);
       }
-      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract?.substring(0, 500) || "No abstract"}`).join('\n\n');
+      
+      const formatAbstract = (text: string) => {
+        if (!text) return "No abstract";
+        if (text.length <= 1500) return text;
+        return text.substring(0, 700) + "\n...[middle omitted]...\n" + text.substring(text.length - 700);
+      };
+      
+      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${formatAbstract(d.abstract)}`).join('\n\n');
 
       const prompt = `Act as an expert medical research reviewer.
       The user is planning a study on "${formData.topic}" in "${formData.population}" in the ${formData.labSection} department.
@@ -680,13 +722,37 @@ export default function LabResearchAgent() {
     setLoading(true);
     try {
       let includedDocs = evidencePool.filter(d => d.included);
-      // Sort by citations if available to prioritize high-impact papers, then cap to avoid token limit
-      includedDocs.sort((a, b) => (b.citations || 0) - (a.citations || 0));
+      
+      // Sort by relevance to topic keywords, then citations
+      const topicWords = formData.topic.toLowerCase().split(' ').filter(w => w.length > 3);
+      includedDocs.sort((a, b) => {
+        let scoreA = 0; let scoreB = 0;
+        const titleA = (a.title || '').toLowerCase();
+        const titleB = (b.title || '').toLowerCase();
+        
+        topicWords.forEach(w => {
+           if (titleA.includes(w)) scoreA += 10;
+           if (titleB.includes(w)) scoreB += 10;
+        });
+        
+        if (a.citations) scoreA += Math.min(a.citations / 5, 20);
+        if (b.citations) scoreB += Math.min(b.citations / 5, 20);
+        
+        return scoreB - scoreA;
+      });
+
       const MAX_PAPERS = 25;
       if (includedDocs.length > MAX_PAPERS) {
         includedDocs = includedDocs.slice(0, MAX_PAPERS);
       }
-      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract?.substring(0, 500) || "No abstract"}`).join('\n\n');
+      
+      const formatAbstract = (text: string) => {
+        if (!text) return "No abstract";
+        if (text.length <= 1500) return text;
+        return text.substring(0, 700) + "\n...[middle omitted]...\n" + text.substring(text.length - 700);
+      };
+      
+      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${formatAbstract(d.abstract)}`).join('\n\n');
 
       const prompt = `Act as an expert medical laboratory scientist and literature analyst. 
       The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}".
