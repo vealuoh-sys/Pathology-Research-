@@ -716,7 +716,8 @@ export default function LabResearchAgent() {
     }
   };
 
-  const handleGenerateGaps = async () => {
+  const handleGenerateGaps = async (bypassed: boolean | React.MouseEvent = false) => {
+    const isBypassed = bypassed === true;
     if (evidencePool.filter(d => d.included).length === 0) return setError("No included papers to analyze.");
     setError('');
     setLoading(true);
@@ -789,6 +790,8 @@ export default function LabResearchAgent() {
       const parsed = JSON.parse(res);
       
       if (parsed.gaps && Array.isArray(parsed.gaps)) {
+        const finalGaps = parsed.gaps.map((g: any) => ({ ...g, isBypassedSynthesis: isBypassed }));
+        parsed.gaps = finalGaps;
         setGaps(parsed.gaps);
         setTopicSaturation({ saturation: parsed.saturation, justification: parsed.justification });
       } else {
@@ -1020,6 +1023,16 @@ export default function LabResearchAgent() {
             console.warn("Failed to verify DOI", doi, e);
           }
         }
+      }
+
+      if (selectedGap?.isBypassedSynthesis) {
+        flags.push({
+          id: 'bypassed-synthesis-flag',
+          quote: "Entire manuscript derived from bypassed evidence pool",
+          issue: "This gap analysis was generated using an evidence pool flagged as insufficient. Use extreme caution and manually verify all claims.",
+          type: "reasoning shortcut",
+          section: "discussion"
+        });
       }
 
       if (flags.length > 0) {
@@ -1298,6 +1311,12 @@ export default function LabResearchAgent() {
                             onClick={() => setSelectedGap(gap)}
                             className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${selectedGap === gap ? 'border-[var(--accent-primary)] bg-[var(--accent-primary-light)] shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-paper)] hover:border-[var(--text-muted)]'}`}
                           >
+                            {gap.isBypassedSynthesis && (
+                              <div className="mb-3 p-2 bg-red-900/10 border border-red-500/30 rounded flex items-center gap-2 text-red-500 text-xs font-bold uppercase">
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
+                                Generated from an evidence pool flagged as insufficient — use with caution
+                              </div>
+                            )}
                             <div className="flex gap-4 mb-3">
                               <div className="pt-1 shrink-0">
                                 <CheckCircle className={`w-6 h-6 ${selectedGap === gap ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
@@ -1419,7 +1438,7 @@ export default function LabResearchAgent() {
                              )}
                              <div className="mt-4 pt-4 border-t border-red-500/20 flex gap-4">
                                <button onClick={() => setReviewerFeedback(null)} className="text-xs font-bold text-[var(--text-primary)] border border-[var(--border-color)] px-4 py-2 rounded-lg hover:bg-[var(--bg-app)]">Acknowledge & Adjust Funnel</button>
-                               <button onClick={handleGenerateGaps} className="text-xs font-bold text-red-500 border border-red-500/50 px-4 py-2 rounded-lg hover:bg-red-500/10">Bypass & Force Synthesis</button>
+                               <button onClick={() => handleGenerateGaps(true)} className="text-xs font-bold text-red-500 border border-red-500/50 px-4 py-2 rounded-lg hover:bg-red-500/10">Bypass & Force Synthesis</button>
                              </div>
                           </div>
                         )}
@@ -1457,6 +1476,15 @@ export default function LabResearchAgent() {
                   <p className="text-[var(--text-secondary)] mt-2">Generated methodology and required data dictionary.</p>
                 </div>
 
+                {selectedGap?.isBypassedSynthesis && (
+                  <div className="mb-6 p-4 bg-red-900/10 border border-red-500/30 rounded-xl flex items-start gap-3 text-red-500 text-sm font-bold">
+                    <AlertTriangle className="w-5 h-5 shrink-0" />
+                    <div>
+                      <p className="uppercase tracking-widest text-[10px] mb-1">Insufficient Evidence Flag</p>
+                      <p className="font-normal text-[var(--text-primary)]">This protocol is addressing a gap generated from an insufficient evidence pool. The scientific foundation may be weak. Proceed with caution.</p>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                   <div className="xl:col-span-2">
                     <SectionCard title="Methodology">
