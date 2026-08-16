@@ -546,13 +546,27 @@ export default function LabResearchAgent() {
       let counts = { initial: 0, deduplicated: 0, screened: 0, included: 0 };
       try {
         setLoadingPubMed(true);
-        const query = `${formData.topic} ${formData.population} ${formData.labSection}`;
-        const searchRes = await fetch(`/api/literature-search`, {
+        let queryTier1 = `${formData.topic} ${formData.population} ${formData.labSection}`;
+        let searchRes = await fetch(`/api/literature-search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query })
+          body: JSON.stringify({ query: queryTier1 })
         });
-        const searchData = await searchRes.json();
+        let searchData = await searchRes.json();
+        
+        if (!searchData.results || searchData.results.length < 10) {
+          console.log(`Tier 1 query ("${queryTier1}") returned ${searchData.results?.length || 0} results. Falling back to Tier 2 (Topic only).`);
+          let queryTier2 = formData.topic;
+          searchRes = await fetch(`/api/literature-search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: queryTier2 })
+          });
+          searchData = await searchRes.json();
+          console.log(`Tier 2 query ("${queryTier2}") returned ${searchData.results?.length || 0} results.`);
+        } else {
+          console.log(`Tier 1 query ("${queryTier1}") returned ${searchData.results?.length || 0} results.`);
+        }
         if (searchData.results && searchData.results.length > 0) {
           docs = searchData.results;
           counts.initial = searchData.counts?.initial || docs.length;
@@ -571,12 +585,12 @@ export default function LabResearchAgent() {
       const litContext = docs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} | Abstract: ${d.abstract?.substring(0,300)}...`).join('\n');
 
       const prompt = `Act as an expert systematic review screener. 
-      The user is planning a ${formData.studyType} study on "${formData.topic}" in "${formData.population}".
+      The user is planning a ${formData.studyType} study on "${formData.topic}" in "${formData.population}" within the "${formData.labSection}" laboratory section.
       
       Here are the fetched papers:
       ${litContext}
       
-      Screen these papers for relevance to the specific topic and population.
+      Screen these papers for relevance to the specific topic, patient population, and laboratory section.
       Format the output EXACTLY as a JSON array of objects:
       [
         {

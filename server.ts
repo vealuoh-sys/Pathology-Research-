@@ -238,8 +238,8 @@ async function startServer() {
       if (!query) throw new Error("Query is required");
 
       const [pubmedRes, oaRes] = await Promise.allSettled([
-        fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=15`),
-        fetch(`https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15`)
+        fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=100`),
+        fetch(`https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=100`)
       ]);
 
       let docs: any[] = [];
