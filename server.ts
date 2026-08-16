@@ -367,12 +367,12 @@ async function startServer() {
       }
 
       res.json({ 
-        results: uniqueDocs.slice(0, 15),
+        results: uniqueDocs,
         counts: {
           initial: initialCount,
           deduplicated: uniqueDocs.length
         }
-      }); // Return top 15 combined
+      }); // Return all combined
     } catch (error: any) {
       console.error("Literature Search Error:", error);
       res.status(500).json({ error: error.message });
