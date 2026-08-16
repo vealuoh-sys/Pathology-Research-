@@ -67,6 +67,8 @@ async function startServer() {
             schemaInstruction += "{ saturation: string, justification: string, gaps: [{ text: string, provenance: [{uid: string, quote: string}] }] }";
           } else if (schemaId === 'screening-funnel') {
             schemaInstruction += "[{ uid: string, included: boolean, reason: string }]";
+          } else if (schemaId === 'literature-reviewer') {
+            schemaInstruction += "{ sufficient: boolean, reasoning: string, missingAspects: [string], suggestedExclusionsToReinclude: [string] }";
           } else if (schemaId === 'refinement-pass') {
             schemaInstruction += "[{ issue: string, quote: string, type: 'citation'|'methodology'|'criteria'|'limitation'|'bias'|'other', severity: 'high'|'medium'|'low', section: string }]";
           }
@@ -77,9 +79,8 @@ async function startServer() {
             prompt: prompt + schemaInstruction
           });
           
-          textResult = text.replace(/```json/g, '').replace(/```/g, '').trim();
+          textResult = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
         } else {
-          // Use generateObject for specific schemas to enforce Zod constraints
           if (schemaId === 'gap-synthesis') {
             const { object } = await generateObject({
               model: currentProviderModel,
@@ -110,6 +111,19 @@ async function startServer() {
               }))
             });
             textResult = JSON.stringify(object);
+          } else if (schemaId === 'literature-reviewer') {
+            const { object } = await generateObject({
+              model: currentProviderModel,
+              system,
+              prompt,
+              schema: z.object({
+                sufficient: z.boolean(),
+                reasoning: z.string(),
+                missingAspects: z.array(z.string()).optional(),
+                suggestedExclusionsToReinclude: z.array(z.string()).optional()
+              })
+            });
+            textResult = JSON.stringify(object);
           } else if (schemaId === 'refinement-pass') {
             const { object } = await generateObject({
               model: currentProviderModel,
@@ -125,7 +139,6 @@ async function startServer() {
             });
             textResult = JSON.stringify(object);
           } else {
-            // Standard text generation
             const { text } = await generateText({
               model: currentProviderModel,
               system,
