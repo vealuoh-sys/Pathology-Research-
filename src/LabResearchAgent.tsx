@@ -632,8 +632,14 @@ export default function LabResearchAgent() {
     setLoading(true);
     setReviewerFeedback(null);
     try {
-      const includedDocs = evidencePool.filter(d => d.included);
-      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract}`).join('\n\n');
+      let includedDocs = evidencePool.filter(d => d.included);
+      // Sort by citations if available to prioritize high-impact papers, then cap to avoid token limit
+      includedDocs.sort((a, b) => (b.citations || 0) - (a.citations || 0));
+      const MAX_PAPERS = 25;
+      if (includedDocs.length > MAX_PAPERS) {
+        includedDocs = includedDocs.slice(0, MAX_PAPERS);
+      }
+      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract?.substring(0, 500) || "No abstract"}`).join('\n\n');
 
       const prompt = `Act as an expert medical research reviewer.
       The user is planning a study on "${formData.topic}" in "${formData.population}" in the ${formData.labSection} department.
@@ -673,8 +679,14 @@ export default function LabResearchAgent() {
     setError('');
     setLoading(true);
     try {
-      const includedDocs = evidencePool.filter(d => d.included);
-      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract}`).join('\n\n');
+      let includedDocs = evidencePool.filter(d => d.included);
+      // Sort by citations if available to prioritize high-impact papers, then cap to avoid token limit
+      includedDocs.sort((a, b) => (b.citations || 0) - (a.citations || 0));
+      const MAX_PAPERS = 25;
+      if (includedDocs.length > MAX_PAPERS) {
+        includedDocs = includedDocs.slice(0, MAX_PAPERS);
+      }
+      const litContext = includedDocs.map((d: any) => `ID: ${d.uid} | Title: ${d.title} (${d.pubdate}, ${d.origin}) | Abstract: ${d.abstract?.substring(0, 500) || "No abstract"}`).join('\n\n');
 
       const prompt = `Act as an expert medical laboratory scientist and literature analyst. 
       The user is planning a single-center ${formData.studyType} study in the ${formData.labSection} department focusing on "${formData.topic}" in "${formData.population}".
