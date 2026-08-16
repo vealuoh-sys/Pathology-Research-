@@ -526,7 +526,7 @@ export default function LabResearchAgent() {
       const synthesis = await callGemini(prompt, { highThinking: true });
       
       setAnalysis({
-        result: { name: 'Automated Meta-Analysis', p: 0.001, stat: data.data.length, df: 'Papers' },
+        result: { name: 'Automated Meta-Analysis', p: 0.001, stat: includedDocs.length, df: 'Papers' },
         interpretation: synthesis
       });
       
@@ -1569,11 +1569,11 @@ export default function LabResearchAgent() {
                 
                 {formData.studyType === 'Automated Literature Review' ? (
                   <div className="grid grid-cols-1 gap-8">
-                     <SectionCard title="Automated Literature Fetch & Meta-Analysis" className="!p-8">
-                       <p className="text-sm text-[var(--text-secondary)] mb-6">Fetch the most relevant recent papers and automatically perform a thematic synthesis.</p>
+                     <SectionCard title="Automated Literature Meta-Analysis" className="!p-8">
+                       <p className="text-sm text-[var(--text-secondary)] mb-6">Automatically perform a thematic synthesis and meta-analysis on the screened evidence pool.</p>
                        
                        <PrimaryButton onClick={handleAutomatedReview} loading={loading} icon={Search} className="mb-8">
-                          Fetch Literature & Synthesize
+                          Synthesize Literature
                        </PrimaryButton>
                        
                        {literatureData.length > 0 && (
