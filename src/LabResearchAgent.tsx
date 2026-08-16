@@ -595,7 +595,9 @@ export default function LabResearchAgent() {
         Here are the fetched papers:
         ${litContext}
         
-        Screen these papers for relevance to the specific topic, patient population, and laboratory section.
+        Screen these papers for relevance. 
+        CRITICAL INCLUSION RULE: You must INCLUDE any paper that is a foundational guideline, consensus statement, or major study directly related to EITHER the primary biomarker (e.g. Troponin) OR the primary condition (e.g. CKD), as these are necessary for background context, even if they do not explicitly mention both components.
+        Only exclude papers that are entirely unrelated to both components or tangentially mention them without focusing on them.
         Format the output EXACTLY as a JSON array of objects:
         [
           {
@@ -1327,7 +1329,7 @@ export default function LabResearchAgent() {
                             {gap.provenance && gap.provenance.length > 0 && (
                                <div className="pl-10 space-y-2 mt-4">
                                  {gap.provenance.map((prov: any, pIdx: number) => {
-                                   const sourceDoc = evidencePool.find(d => String(d.uid) === String(prov.uid));
+                                   const sourceDoc = evidencePool.find(d => String(d.uid) === String(prov.uid) || String(d.uid).includes(String(prov.uid)) || String(prov.uid).includes(String(d.uid)) || (d.doi && String(prov.uid).includes(d.doi)));
                                    return (
                                      <div key={pIdx} className="p-3 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg">
                                         <div className="flex justify-between items-start mb-1">
