@@ -610,18 +610,27 @@ export default function LabResearchAgent() {
         
         try {
           let res = await callGemini(prompt, { webSearch: false, highThinking: false, schemaId: 'screening-funnel' });
-          res = res.replace(/^\`\`\`(json)?/m, '').replace(/\`\`\`$/m, '').trim();
-          const parsed = JSON.parse(res);
-          if (Array.isArray(parsed)) {
-            allParsed = allParsed.concat(parsed);
+          try {
+            // Robust JSON extraction
+            const jsonStart = res.indexOf('[');
+            const jsonEnd = res.lastIndexOf(']');
+            if (jsonStart !== -1 && jsonEnd !== -1) {
+              res = res.substring(jsonStart, jsonEnd + 1);
+            }
+            const parsed = JSON.parse(res);
+            if (Array.isArray(parsed)) {
+              allParsed = allParsed.concat(parsed);
+            }
+          } catch (parseErr) {
+            console.error("Failed to parse JSON for batch", i, "\nRaw Res:", res, "\nErr:", parseErr);
           }
         } catch (err) {
-          console.warn("Failed to screen batch", i, err);
+          console.error("Failed to screen batch (API Error)", i, err);
         }
         
         // Wait a bit to avoid hitting rate limits too hard
         if (i + BATCH_SIZE < docs.length) {
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 4500));
         }
       }
       setScreeningProgress('');

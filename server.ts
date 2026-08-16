@@ -24,13 +24,13 @@ async function startServer() {
       let isGroq = false;
       
       // Select Provider and Model
-      if (geminiKey && (webSearch || highThinking || !groqKey)) {
-        let modelName = "gemini-2.5-flash"; // Fixed to valid models
+      if (geminiKey && (webSearch || highThinking || schemaId === 'screening-funnel' || !groqKey)) {
+        let modelName = "gemini-3.5-flash"; // Fixed to valid models
         
         if (webSearch) {
-          modelName = "gemini-2.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
+          modelName = "gemini-3.5-flash"; // Vercel AI SDK Google provider handles search via tools, but for this app just use a valid model.
         } else if (highThinking) {
-          modelName = "gemini-2.5-pro"; // Use 2.5 pro for "high thinking"
+          modelName = "gemini-3.5-flash"; // Use 2.5 pro for "high thinking"
         }
         
         // Validate against SDK's supported models
@@ -157,7 +157,7 @@ async function startServer() {
         if (e.message && (e.message.toLowerCase().includes("not found") || e.message.toLowerCase().includes("invalid model"))) {
             throw new Error("Invalid model name provided: " + e.message);
         }
-        if (!isGroq && groqKey) {
+        if (false && !isGroq && groqKey) {
            console.log(`[Fallback] Primary provider failed (likely quota). Routing request to Groq...`);
            const fallbackModel = groqProvider("llama-3.3-70b-versatile");
            responseText = await attemptGeneration(fallbackModel, true);
@@ -189,7 +189,7 @@ async function startServer() {
         const geminiKey = process.env.GEMINI_API_KEY;
         if (!geminiKey) throw new Error("GEMINI_API_KEY missing");
         const googleProvider = createGoogleGenerativeAI({ apiKey: geminiKey });
-        providerModel = googleProvider("gemini-2.5-pro");
+        providerModel = googleProvider("gemini-3.5-flash");
       }
       
       const result = streamText({
